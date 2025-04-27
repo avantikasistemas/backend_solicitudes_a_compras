@@ -3,6 +3,7 @@ CREATE TABLE `solicitudes_compras` (
     `negociador` VARCHAR(50), 
     `cuerpo_texto` TEXT, 
     `usuario_creador_solicitud` VARCHAR(50) NOT NULL, 
+    `estado_solicitud` TINYINT(1) NOT NULL DEFAULT 1, 
     `estado` TINYINT(1) NOT NULL DEFAULT 1, 
     `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP(), 
     PRIMARY KEY (`id`) 

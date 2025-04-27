@@ -3,7 +3,6 @@ from sqlalchemy.orm import Session
 from Class.Parametros import Parametros
 from Utils.decorator import http_decorator
 from Config.db import get_db
-from Middleware.jwt_bearer import JWTBearer
 
 parametros_router = APIRouter()
 

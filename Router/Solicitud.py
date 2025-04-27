@@ -1,0 +1,20 @@
+from fastapi import APIRouter, Request, Depends
+from sqlalchemy.orm import Session
+from Class.Solicitud import Solicitud
+from Utils.decorator import http_decorator
+from Config.db import get_db
+
+solicitud_router = APIRouter()
+
+@solicitud_router.post('/guardar_solicitud', tags=["Solicitud"], response_model=dict)
+@http_decorator
+def guardar_solicitud(request: Request, db: Session = Depends(get_db)):
+    data = getattr(request.state, "json_data", {})
+    response = Solicitud(db).guardar_solicitud(data)
+    return response
+
+@solicitud_router.post('/mostrar_solicitudes', tags=["Solicitud"], response_model=dict)
+@http_decorator
+def mostrar_solicitudes(request: Request, db: Session = Depends(get_db)):
+    response = Solicitud(db).mostrar_solicitudes()
+    return response
