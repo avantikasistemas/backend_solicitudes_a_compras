@@ -2,6 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from Config.db import BASE, engine
 from Middleware.get_json import JSONMiddleware
+from Router.User import user_router
 from Router.Solicitud import solicitud_router
 from Router.Parametros import parametros_router
 
@@ -16,6 +17,8 @@ app.add_middleware(
     allow_methods=["*"],  # Permitir todos los métodos; puedes especificar los métodos permitidos.
     allow_headers=["*"],  # Permitir todos los encabezados; puedes especificar los encabezados permitidos.
 )
+
+app.include_router(user_router)
 app.include_router(solicitud_router)
 app.include_router(parametros_router)
 

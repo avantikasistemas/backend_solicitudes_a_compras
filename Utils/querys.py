@@ -43,36 +43,12 @@ class Querys:
         finally:
             self.db.close()
 
-    # Query para obtener los tipos de estado para la cotizacion
-    # def get_negociadores(self):
-
-    #     try:
-    #         response = list()
-    #         sql = """
-    #             SELECT des_usuario, usuario FROM negociadores;
-    #         """
-
-    #         query = self.db.execute(text(sql)).fetchall()
-    #         if query:
-    #             for key in query:
-    #                 response.append({
-    #                     "des_usuario": key[0].upper(),
-    #                     "usuario": key[1]
-    #                 })
-
-    #         return response
-                
-    #     except Exception as ex:
-    #         print(str(ex))
-    #         raise CustomException(str(ex))
-    #     finally:
-    #         self.db.close()
-
     # Query para insertar datos de la solicitud.
     def guardar_solicitud(self, data: dict):
         try:
             sql = """
-                INSERT INTO solicitudes_compras (negociador, cuerpo_texto, usuario_creador_solicitud, created_at)
+                INSERT INTO dbo.solicitudes_compras (negociador, cuerpo_texto, usuario_creador_solicitud, created_at)
+                OUTPUT INSERTED.id
                 VALUES (:negociador, :cuerpo_texto, :usuario_creador_solicitud, :created_at);
             """
             result = self.db.execute(
@@ -80,13 +56,14 @@ class Querys:
                 {
                     "negociador": data["negociador"],
                     "cuerpo_texto": data["cuerpo_texto"],
-                    "usuario_creador_solicitud": data["nombre_equipo"],
+                    "usuario_creador_solicitud": data["solicitante"],
                     "created_at": datetime.now()
                 }
             )
-            self.db.commit()
-
-            return result.lastrowid
+            
+            inserted_id = result.scalar()  # PRIMERO capturamos el ID
+            self.db.commit()                # LUEGO hacemos commit
+            return inserted_id
                 
         except Exception as ex:
             print("Error al guardar:", ex)
@@ -99,7 +76,7 @@ class Querys:
     def guardar_producto_detalles(self, solicitud_id: int, data: dict):
         try:
             sql = """
-                INSERT INTO solicitudes_compras_detalles (solicitud_id, referencia, producto, 
+                INSERT INTO dbo.solicitudes_compras_detalles (solicitud_id, referencia, producto, 
                 cantidad, proveedor, marca, created_at) VALUES (:solicitud_id, :referencia, :producto,
                 :cantidad, :proveedor, :marca, :created_at);
             """
@@ -125,47 +102,213 @@ class Querys:
             self.db.close()
 
     # Query para mostrar las solicitudes.
-    def mostrar_solicitudes(self):
+    def mostrar_solicitudes(self, data: dict):
         try:
+            solicitud_id = data["solicitud_id"]
+            estado_solicitud = data["estado_solicitud"]
+            solicitante = data["solicitante"]
+            negociador = data["negociador"]
+            cant_registros = 0
+            limit = data["limit"]
+            position = data["position"]
+            result = {"registros": [], "cant_registros": 0}
+            response = list()
+            
             sql = """
-                SELECT * FROM solicitudes_compras WHERE estado = 1 ORDER BY id DESC;
+                SELECT COUNT(*) OVER() AS total_registros, sc.*, se.nombre as estado_solicitud_nombre,
+				uc.des_usuario as 'usuario_nombre', u.des_usuario as 'negociador_nombre'
+                FROM dbo.solicitudes_compras sc
+                INNER JOIN dbo.solicitudes_estados se ON sc.estado_solicitud = se.id
+				INNER JOIN usuarios uc ON uc.usuario = sc.usuario_creador_solicitud
+				INNER JOIN usuarios u ON u.usuario = sc.negociador
+                WHERE sc.estado = 1 AND se.estado = 1
             """
-            query = self.db.execute(text(sql)).fetchall()
-            # Convertir el resultado a un formato de lista de diccionarios
-            result = [
-                {
-                    "id": key[0], 
-                    "negociador": key[1],
-                    "cuerpo_texto": key[2],
-                    "usuario_creador_solicitud": key[3],
-                    "estado_solicitud": key[4],
-                    "estado": key[5],
-                    "created_at": str(key[6]),
-                } for key in query
-            ] if query else []
+            
+            if solicitud_id:
+                sql += " AND sc.id = :solicitud_id"
+                self.query_params.update({"solicitud_id": solicitud_id})
+            
+            if estado_solicitud:
+                sql += " AND sc.estado_solicitud = :estado_solicitud"
+                self.query_params.update({"estado_solicitud": estado_solicitud})
 
-            if result:
-                for key in result:
-                    # Obtener los detalles de la solicitud
-                    sql_detalles = """
-                        SELECT * FROM solicitudes_compras_detalles WHERE solicitud_id = :solicitud_id;
-                    """
-                    detalles_query = self.db.execute(text(sql_detalles), {"solicitud_id": key["id"]}).fetchall()
-                    key["detalles"] = [
-                        {
-                            "id": detalle[0],
-                            "referencia": detalle[2],
-                            "producto": detalle[3],
-                            "cantidad": detalle[4],
-                            "proveedor": detalle[5],
-                            "marca": detalle[6]
-                        } for detalle in detalles_query
-                    ] if detalles_query else []
+            if solicitante:
+                sql += " AND sc.usuario_creador_solicitud = :solicitante"
+                self.query_params.update({"solicitante": solicitante})
+                
+            if negociador:
+                sql += " AND sc.negociador = :negociador"
+                self.query_params.update({"negociador": negociador})
+                
+            new_offset = self.obtener_limit(limit, position)
+            self.query_params.update({"offset": new_offset, "limit": limit})
+            sql = sql + " ORDER BY sc.id DESC OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY;"
+
+            if self.query_params:
+                query = self.db.execute(text(sql), self.query_params).fetchall()
+            else:
+                query = self.db.execute(text(sql)).fetchall()
+                
+            if query:
+                cant_registros = query[0][0]
+            
+                # Convertir el resultado a un formato de lista de diccionarios
+                response = [
+                    {
+                        "id": key[1], 
+                        "negociador": key[2],
+                        "cuerpo_texto": key[3],
+                        "usuario_creador_solicitud": key[4],
+                        "estado_solicitud": key[5],
+                        "fecha_resuelto": self.tools.format_date(str(key[6]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if key[6] else '',
+                        "comentario_resuelto": key[7],
+                        "estado": key[8],
+                        "created_at": self.tools.format_date(str(key[9]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if str(key[9]) else '',
+                        "estado_solicitud_nombre": key[10],
+                        "usuario_nombre": key[11],
+                        "negociador_nombre": key[12].upper()
+                    } for key in query
+                ] if query else []
+
+                if response:
+                    for key in response:
+                        # Obtener los detalles de la solicitud
+                        sql_detalles = """
+                            SELECT * FROM solicitudes_compras_detalles WHERE solicitud_id = :solicitud_id;
+                        """
+                        detalles_query = self.db.execute(text(sql_detalles), {"solicitud_id": key["id"]}).fetchall()
+                        key["detalles"] = [
+                            {
+                                "id": detalle[0],
+                                "referencia": detalle[2],
+                                "producto": detalle[3],
+                                "cantidad": detalle[4],
+                                "proveedor": detalle[5],
+                                "marca": detalle[6]
+                            } for detalle in detalles_query
+                        ] if detalles_query else []
+                        
+                result = {"registros": response, "cant_registros": cant_registros}
 
             return result
                 
         except Exception as ex:
             print("Error al mostrar:", ex)
             raise CustomException("Error al mostrar.")
+        finally:
+            self.db.close()
+
+    # Query para obtener los tipos de estado para la cotizacion
+    def get_estados_solicitud(self):
+
+        try:
+            response = list()
+            sql = """
+                SELECT *
+                FROM dbo.solicitudes_estados
+                WHERE estado = 1
+                ORDER BY orden;
+            """
+
+            query = self.db.execute(text(sql)).fetchall()
+            if query:
+                for key in query:
+                    response.append({
+                        "id": key[0],
+                        "nombre": key[2]
+                    })
+
+            return response
+                
+        except Exception as ex:
+            print(str(ex))
+            raise CustomException(str(ex))
+        finally:
+            self.db.close()
+
+    # Función para obtener el limite de para paginar
+    def obtener_limit(self, limit: int, position: int):
+        offset = (position - 1) * limit
+        return offset
+
+    # Query para obtener los tipos de estado para la cotizacion
+    def get_personal_cotizaciones(self):
+
+        try:
+            response = list()
+            sql = """
+                SELECT nit, nombres
+                FROM v_personal_activo 
+                WHERE descripcion IN ('ASESOR DE VENTA', 'ASESOR DE VENTAS TELEMERCADEO', 'COORDINADOR DE COTIZACIONES')
+                ORDER BY nombres ASC;
+            """
+
+            query = self.db.execute(text(sql)).fetchall()
+            if query:
+                for key in query:
+                    response.append({
+                        "cedula": key[0],
+                        "nombre": key[1]
+                    })
+
+            return response
+                
+        except Exception as ex:
+            print(str(ex))
+            raise CustomException(str(ex))
+        finally:
+            self.db.close()
+
+    # Query para obtener la informacion del usuario
+    def get_usuario(self, usuario, password):
+
+        try:
+            response = dict()
+            sql = """
+                SELECT des_usuario, nit, usuario
+                FROM dbo.usuarios
+                WHERE usuario = :usuario
+                AND clave = :clave;
+            """
+
+            query = self.db.execute(
+                text(sql), 
+                {"usuario": usuario, "clave": password}
+            ).fetchone()
+            if not query:
+                raise CustomException("Usuario o contraseña incorrecta.")
+            
+            response.update({
+                "nombre": query[0],
+                "cedula": str(query[1]),
+                "usuario": query[2]
+            })
+
+            return response
+                
+        except Exception as ex:
+            print(str(ex))
+            raise CustomException("Error al intentar conectar con la base de datos.")
+        finally:
+            self.db.close()
+
+    # Query para obtener los datos de usuario por cedula, esta query solo es
+    # usada para validacion del jwt bearer
+    def get_usuario_x_cedula(self, cedula):
+
+        try:
+            sql = """
+                SELECT nit
+                FROM dbo.usuarios
+                WHERE nit = :cedula;
+            """
+
+            query = self.db.execute(text(sql), {"cedula": cedula}).fetchone()
+
+            return query[0]
+                
+        except Exception as ex:
+            print(str(ex))
+            raise CustomException(str(ex))
         finally:
             self.db.close()
