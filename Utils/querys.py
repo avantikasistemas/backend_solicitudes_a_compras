@@ -237,10 +237,12 @@ class Querys:
         try:
             response = list()
             sql = """
-                SELECT nit, nombres
-                FROM v_personal_activo 
-                WHERE descripcion IN ('ASESOR DE VENTA', 'ASESOR DE VENTAS TELEMERCADEO', 'COORDINADOR DE COTIZACIONES')
-                ORDER BY nombres ASC;
+                SELECT va.nit, va.nombres, u.usuario
+                FROM v_personal_activo va
+                INNER JOIN usuarios u ON u.nit = va.nit
+                WHERE va.descripcion IN ('ASESOR DE VENTA', 'ASESOR DE VENTAS TELEMERCADEO', 'COORDINADOR DE COTIZACIONES')
+                AND u.bloqueado IS NULL
+                ORDER BY va.nombres ASC
             """
 
             query = self.db.execute(text(sql)).fetchall()
@@ -248,7 +250,8 @@ class Querys:
                 for key in query:
                     response.append({
                         "cedula": key[0],
-                        "nombre": key[1]
+                        "nombre": key[1],
+                        "usuario": key[2]
                     })
 
             return response

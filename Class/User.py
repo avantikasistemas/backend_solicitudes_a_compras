@@ -18,7 +18,7 @@ class User:
     # Función para loguear en el aplicativo
     def login(self, data):
 
-        usuario = data["usuario"]
+        usuario = data["usuario"].upper()
         password = data["password"]
 
         if usuario not in self.cuentas_validas:
