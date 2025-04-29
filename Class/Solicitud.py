@@ -25,6 +25,9 @@ class Solicitud:
             for producto in lista_productos:
                 # Guardar cada producto en la base de datos
                 self.querys.guardar_producto_detalles(solicitud_id, producto)
+                
+            # Envío correo de notificación
+            self.tools.enviar_correo_notificacion(solicitud_id, data)
 
             # Retornamos la información.
             return self.tools.output(200, "Solicitud guardada con éxito.")
@@ -35,13 +38,8 @@ class Solicitud:
         
     # Función para consultar los datos de busqueda en modulo CONSULTAR
     def mostrar_solicitudes(self, data: dict):
-        
-        # Asignamos nuestros datos de entrada a sus respectivas variables
-        solicitud_id = data["solicitud_id"]
 
         try:
-            if solicitud_id:
-                data["solicitud_id"] = solicitud_id
 
             if data["position"] <= 0:
                 message = "El campo posición no es válido"

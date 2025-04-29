@@ -47,14 +47,15 @@ class Querys:
     def guardar_solicitud(self, data: dict):
         try:
             sql = """
-                INSERT INTO dbo.solicitudes_compras (negociador, cuerpo_texto, usuario_creador_solicitud, created_at)
+                INSERT INTO dbo.solicitudes_compras (negociador, asunto, cuerpo_texto, usuario_creador_solicitud, created_at)
                 OUTPUT INSERTED.id
-                VALUES (:negociador, :cuerpo_texto, :usuario_creador_solicitud, :created_at);
+                VALUES (:negociador, :asunto, :cuerpo_texto, :usuario_creador_solicitud, :created_at);
             """
             result = self.db.execute(
                 text(sql), 
                 {
                     "negociador": data["negociador"],
+                    "asunto": data["asunto"],
                     "cuerpo_texto": data["cuerpo_texto"],
                     "usuario_creador_solicitud": data["solicitante"],
                     "created_at": datetime.now()
@@ -148,7 +149,7 @@ class Querys:
                 query = self.db.execute(text(sql), self.query_params).fetchall()
             else:
                 query = self.db.execute(text(sql)).fetchall()
-                
+
             if query:
                 cant_registros = query[0][0]
             
@@ -157,16 +158,17 @@ class Querys:
                     {
                         "id": key[1], 
                         "negociador": key[2],
-                        "cuerpo_texto": key[3],
-                        "usuario_creador_solicitud": key[4],
-                        "estado_solicitud": key[5],
-                        "fecha_resuelto": self.tools.format_date(str(key[6]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if key[6] else '',
-                        "comentario_resuelto": key[7],
-                        "estado": key[8],
-                        "created_at": self.tools.format_date(str(key[9]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if str(key[9]) else '',
-                        "estado_solicitud_nombre": key[10],
-                        "usuario_nombre": key[11],
-                        "negociador_nombre": key[12].upper()
+                        "asunto": key[3],
+                        "cuerpo_texto": key[4],
+                        "usuario_creador_solicitud": key[5],
+                        "estado_solicitud": key[6],
+                        "fecha_resuelto": self.tools.format_date(str(key[7]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if key[7] else '',
+                        "comentario_resuelto": key[8],
+                        "estado": key[9],
+                        "created_at": self.tools.format_date(str(key[10]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if str(key[10]) else '',
+                        "estado_solicitud_nombre": key[11],
+                        "usuario_nombre": key[12],
+                        "negociador_nombre": key[13].upper()
                     } for key in query
                 ] if query else []
 

@@ -4,15 +4,16 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.encoders import jsonable_encoder
 # from dotenv import load_dotenv
 # from email.mime.multipart import MIMEMultipart
-# from email.mime.text import MIMEText
+from email.mime.text import MIMEText
 # from email.mime.base import MIMEBase
 # from email import encoders
 # import json
 # import os
-# import smtplib
+import smtplib
 import pytz
 from datetime import datetime, timezone
 from decimal import Decimal
+from .constants import SMTP_SERVER, SMTP_PORT
 
 class Tools:
 
@@ -88,6 +89,24 @@ class Tools:
         value = value.replace(",", "")
         valor_decimal = Decimal(value)
         return valor_decimal
+    
+    # Función para enviar correo de notificación
+    def enviar_correo_notificacion(self, solicitud_id, data):
+        mensaje = data["cuerpo_texto"]
+        msg = MIMEText(mensaje)
+        msg['Subject'] = f"{data['asunto']} - Solicitud #: {solicitud_id}"
+        msg['From'] = "sistemas@avantika.com.co"
+        msg['To'] = "auxiliartic@avantika.com.co"
+        try:
+            server = smtplib.SMTP(str(SMTP_SERVER), int(SMTP_PORT), timeout=10)
+            server.ehlo()  # 👈 Esto es clave para muchos servidores
+            server.sendmail(msg['From'], [msg['To']], msg.as_string()) 
+            server.quit()
+            print("Correo de notificación enviado correctamente.")
+        except Exception as e:
+            print(f"Error enviando correo de notificación: {str(e)}")
+            CustomException(f"Error enviando correo de notificación.")
+
 
     # """ Obtener archivo"""
     # def get_file_b64(self, file_path):
