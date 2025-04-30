@@ -13,7 +13,7 @@ import smtplib
 import pytz
 from datetime import datetime, timezone
 from decimal import Decimal
-from .constants import SMTP_SERVER, SMTP_PORT
+from .constants import SMTP_SERVER, SMTP_PORT, SMTP_EMAIL_SEND
 
 class Tools:
 
@@ -91,16 +91,63 @@ class Tools:
         return valor_decimal
     
     # Función para enviar correo de notificación
-    def enviar_correo_notificacion(self, solicitud_id, data):
-        mensaje = data["cuerpo_texto"]
-        msg = MIMEText(mensaje)
-        msg['Subject'] = f"{data['asunto']} - Solicitud #: {solicitud_id}"
-        msg['From'] = "sistemas@avantika.com.co"
-        msg['To'] = "auxiliartic@avantika.com.co"
+    def enviar_correo_notificacion(self, solicitud_id, data, correos):
+        cuerpo_texto = data["cuerpo_texto"]
+        # Asegura que los correos estén en una lista de strings
+        # destinatarios_list = [correo.strip() for correo in correos if correo.strip()]
+        
+        # Construir tabla HTML
+        tabla_html = """
+        <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; font-family: Arial;">
+            <thead style="background-color:#2778bf; color:white;">
+                <tr>
+                    <th>Referencia</th>
+                    <th>Producto</th>
+                    <th>Cantidad</th>
+                    <th>Proveedor</th>
+                    <th>Marca</th>
+                </tr>
+            </thead>
+            <tbody>
+        """
+
+        for producto in data["lista_productos"]:
+            tabla_html += f"""
+                <tr>
+                    <td>{producto.get('referencia', '')}</td>
+                    <td>{producto.get('producto', '')}</td>
+                    <td>{producto.get('cantidad', '')}</td>
+                    <td>{producto.get('proveedor', '')}</td>
+                    <td>{producto.get('marca', '')}</td>
+                </tr>
+            """
+
+        tabla_html += "</tbody></table>"
+
+        # Combinar el cuerpo del mensaje con la tabla
+        html_content = f"""
+        <html>
+            <body>
+                <p>{cuerpo_texto}</p>
+                <h4>Productos solicitados:</h4>
+                {tabla_html}
+            </body>
+        </html>
+        """
+
+        msg = MIMEText(html_content, "html")    
+        
+        msg['Subject'] = f"Solicitud #: {solicitud_id} - {data['asunto']}"
+        msg['From'] = SMTP_EMAIL_SEND
+        # msg['To'] = ", ".join(destinatarios_list)
+        destinatarios = "auxiliartic@avantika.com.co, sistemas@avantika.com.co"
+        msg['To'] = destinatarios
+        # Convertir esa cadena en lista para sendmail
+        to_list = [correo.strip() for correo in destinatarios.split(",")]
         try:
             server = smtplib.SMTP(str(SMTP_SERVER), int(SMTP_PORT), timeout=10)
-            server.ehlo()  # 👈 Esto es clave para muchos servidores
-            server.sendmail(msg['From'], [msg['To']], msg.as_string()) 
+            server.ehlo()
+            server.sendmail(msg['From'], to_list, msg.as_string()) 
             server.quit()
             print("Correo de notificación enviado correctamente.")
         except Exception as e:

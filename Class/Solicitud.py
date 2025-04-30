@@ -13,6 +13,9 @@ class Solicitud:
     def guardar_solicitud(self, data: dict):
         """ Api que realiza la consulta de los estados. """
         try:
+            correo_solicitante = None
+            correo_negociador = None
+            correos = list()
 
             lista_productos = data["lista_productos"]
             # Verificamos si la lista de productos está vacía
@@ -26,8 +29,12 @@ class Solicitud:
                 # Guardar cada producto en la base de datos
                 self.querys.guardar_producto_detalles(solicitud_id, producto)
                 
+            correo_solicitante = self.querys.obtener_correo(data["solicitante"])
+            correo_negociador = self.querys.obtener_correo(data["negociador"])
+            correos = [correo_solicitante, correo_negociador]
+                
             # Envío correo de notificación
-            self.tools.enviar_correo_notificacion(solicitud_id, data)
+            self.tools.enviar_correo_notificacion(solicitud_id, data, correos)
 
             # Retornamos la información.
             return self.tools.output(200, "Solicitud guardada con éxito.")
