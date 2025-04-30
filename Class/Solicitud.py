@@ -31,10 +31,9 @@ class Solicitud:
                 
             correo_solicitante = self.querys.obtener_correo(data["solicitante"])
             correo_negociador = self.querys.obtener_correo(data["negociador"])
-            correos = [correo_solicitante, correo_negociador]
                 
             # Envío correo de notificación
-            self.tools.enviar_correo_notificacion(solicitud_id, data, correos)
+            self.tools.enviar_correo_notificacion(solicitud_id, data, correo_solicitante, correo_negociador)
 
             # Retornamos la información.
             return self.tools.output(200, "Solicitud guardada con éxito.")

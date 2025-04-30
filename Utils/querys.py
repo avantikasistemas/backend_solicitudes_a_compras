@@ -317,3 +317,24 @@ class Querys:
             raise CustomException(str(ex))
         finally:
             self.db.close()
+
+    # Consulta para traer el correo electrónico del usuario.
+    def obtener_correo(self, usuario):
+
+        try:
+            sql = """
+                select t.mail
+                from usuarios u
+                inner join terceros t on t.nit = u.nit
+                where u.usuario = :usuario
+            """
+
+            query = self.db.execute(text(sql), {"usuario": usuario}).fetchone()
+
+            return query[0]
+                
+        except Exception as ex:
+            print(str(ex))
+            raise CustomException(str(ex))
+        finally:
+            self.db.close()

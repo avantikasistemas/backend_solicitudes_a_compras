@@ -13,7 +13,7 @@ import smtplib
 import pytz
 from datetime import datetime, timezone
 from decimal import Decimal
-from .constants import SMTP_SERVER, SMTP_PORT, SMTP_EMAIL_SEND
+from .constants import SMTP_SERVER, SMTP_PORT
 
 class Tools:
 
@@ -91,10 +91,9 @@ class Tools:
         return valor_decimal
     
     # Función para enviar correo de notificación
-    def enviar_correo_notificacion(self, solicitud_id, data, correos):
+    def enviar_correo_notificacion(self, solicitud_id, data, correo_solicitante, correo_negociador):
+
         cuerpo_texto = data["cuerpo_texto"]
-        # Asegura que los correos estén en una lista de strings
-        # destinatarios_list = [correo.strip() for correo in correos if correo.strip()]
         
         # Construir tabla HTML
         tabla_html = """
@@ -138,21 +137,27 @@ class Tools:
         msg = MIMEText(html_content, "html")    
         
         msg['Subject'] = f"Solicitud #: {solicitud_id} - {data['asunto']}"
-        msg['From'] = SMTP_EMAIL_SEND
-        # msg['To'] = ", ".join(destinatarios_list)
-        destinatarios = "auxiliartic@avantika.com.co, sistemas@avantika.com.co"
-        msg['To'] = destinatarios
-        # Convertir esa cadena en lista para sendmail
-        to_list = [correo.strip() for correo in destinatarios.split(",")]
+        msg['From'] = correo_solicitante
+        msg['To'] = correo_negociador
+        msg['Cc'] = correo_solicitante
+
+        # Convertir correo_solicitante en lista si es string
+        if isinstance(correo_solicitante, str):
+            # Si contiene varias direcciones separadas por coma, separamos
+            correo_solicitante = [email.strip() for email in correo_solicitante.split(',') if email.strip()]
+
+        # Combinar destinatarios TO + CC
+        destinatarios = [correo_negociador] + correo_solicitante
+
         try:
             server = smtplib.SMTP(str(SMTP_SERVER), int(SMTP_PORT), timeout=10)
             server.ehlo()
-            server.sendmail(msg['From'], to_list, msg.as_string()) 
+            server.sendmail(msg['From'], destinatarios, msg.as_string()) 
             server.quit()
             print("Correo de notificación enviado correctamente.")
         except Exception as e:
             print(f"Error enviando correo de notificación: {str(e)}")
-            CustomException(f"Error enviando correo de notificación.")
+            CustomException("Error enviando correo de notificación.")
 
 
     # """ Obtener archivo"""
