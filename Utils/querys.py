@@ -190,6 +190,19 @@ class Querys:
                             } for detalle in detalles_query
                         ] if detalles_query else []
                         
+                        # Obtener el historico de la solicitud
+                        sql_historico = """
+                            SELECT * FROM dbo.solicitudes_compras_detalles_historia WHERE solicitud_id = :solicitud_id;
+                        """
+                        historico_query = self.db.execute(text(sql_historico), {"solicitud_id": key["id"]}).fetchall()
+                        key["historico"] = [
+                            {
+                                "id": hist[0],
+                                "descripcion": hist[2],
+                                "fecha": self.tools.format_date(str(hist[4]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if str(hist[4]) else '',
+                            } for hist in historico_query
+                        ] if historico_query else []
+                        
                 result = {"registros": response, "cant_registros": cant_registros}
 
             return result
@@ -336,5 +349,29 @@ class Querys:
         except Exception as ex:
             print(str(ex))
             raise CustomException(str(ex))
+        finally:
+            self.db.close()
+
+    # Query para guardar historico de la solicitud
+    def guardar_historico(self, solicitud_id: int, mensaje: str):
+        try:
+            sql = """
+                INSERT INTO dbo.solicitudes_compras_detalles_historia (solicitud_id, descripcion, created_at)
+                VALUES (:solicitud_id, :descripcion, :created_at);
+            """
+            self.db.execute(
+                text(sql), 
+                {
+                    "solicitud_id": solicitud_id,
+                    "descripcion": mensaje,
+                    "created_at": datetime.now()
+                }
+            )
+            self.db.commit()
+                
+        except Exception as ex:
+            print("Error al guardar:", ex)
+            self.db.rollback()
+            raise CustomException("Error al guardar.")
         finally:
             self.db.close()

@@ -16,6 +16,7 @@ class Solicitud:
             correo_solicitante = None
             correo_negociador = None
             correos = list()
+            mensaje = f"El usuario {data['solicitante']} ha creado una solicitud al negociador {data['negociador']}."
 
             lista_productos = data["lista_productos"]
             # Verificamos si la lista de productos está vacía
@@ -28,6 +29,9 @@ class Solicitud:
             for producto in lista_productos:
                 # Guardar cada producto en la base de datos
                 self.querys.guardar_producto_detalles(solicitud_id, producto)
+                
+            # Guardar historico de creación.
+            self.querys.guardar_historico(solicitud_id, mensaje)
                 
             correo_solicitante = self.querys.obtener_correo(data["solicitante"])
             correo_negociador = self.querys.obtener_correo(data["negociador"])
