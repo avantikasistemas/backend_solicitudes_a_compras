@@ -20,3 +20,17 @@ def mostrar_solicitudes(request: Request, db: Session = Depends(get_db)):
     data = getattr(request.state, "json_data", {})
     response = Solicitud(db).mostrar_solicitudes(data)
     return response
+
+@solicitud_router.post('/actualizar_negociador', tags=["Solicitud"], response_model=dict, dependencies=[Depends(JWTBearer())])
+@http_decorator
+def actualizar_negociador(request: Request, db: Session = Depends(get_db)):
+    data = getattr(request.state, "json_data", {})
+    response = Solicitud(db).actualizar_negociador(data)
+    return response
+
+@solicitud_router.post('/actualizar_estado', tags=["Solicitud"], response_model=dict, dependencies=[Depends(JWTBearer())])
+@http_decorator
+def actualizar_estado(request: Request, db: Session = Depends(get_db)):
+    data = getattr(request.state, "json_data", {})
+    response = Solicitud(db).actualizar_estado(data)
+    return response

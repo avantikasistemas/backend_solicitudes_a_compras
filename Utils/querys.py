@@ -162,7 +162,7 @@ class Querys:
                         "cuerpo_texto": key[4],
                         "usuario_creador_solicitud": key[5],
                         "estado_solicitud": key[6],
-                        "fecha_resuelto": self.tools.format_date(str(key[7]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if key[7] else '',
+                        "fecha_resuelto": str(key[7]) if key[7] else '',
                         "comentario_resuelto": key[8],
                         "estado": key[9],
                         "created_at": self.tools.format_date(str(key[10]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if str(key[10]) else '',
@@ -373,5 +373,71 @@ class Querys:
             print("Error al guardar:", ex)
             self.db.rollback()
             raise CustomException("Error al guardar.")
+        finally:
+            self.db.close()
+
+    # Query para verificar si la solicitud existe
+    def check_if_solicitud_exists(self, solicitud_id: int):
+        try:
+            sql = """
+                SELECT COUNT(*) FROM dbo.solicitudes_compras WHERE id = :solicitud_id;
+            """
+            result = self.db.execute(text(sql), {"solicitud_id": solicitud_id}).scalar()
+            if result == 0:
+                raise CustomException("La solicitud no existe.")
+                
+        except Exception as ex:
+            print(str(ex))
+            raise CustomException(str(ex))
+        finally:
+            self.db.close()
+
+    # Query para actualizar el negociador de la solicitud
+    def actualizar_negociador(self, data: dict):
+        try:
+            sql = """
+                UPDATE dbo.solicitudes_compras
+                SET negociador = :nuevo_negociador
+                WHERE id = :solicitud_id;
+            """
+            self.db.execute(
+                text(sql), 
+                {
+                    "nuevo_negociador": data["nuevo_negociador"],
+                    "solicitud_id": data["solicitud_id"]
+                }
+            )
+            self.db.commit()
+                
+        except Exception as ex:
+            print("Error al actualizar negociador:", ex)
+            self.db.rollback()
+            raise CustomException("Error al actualizar negociador.")
+        finally:
+            self.db.close()
+
+    # Query para actualizar el estado de la solicitud
+    def actualizar_estado(self, data: dict):
+        try:
+            sql = """
+                UPDATE dbo.solicitudes_compras
+                SET estado_solicitud = :nuevo_estado, fecha_resuelto = :fecha_resuelto, comentario_resuelto = :comentario_resuelto
+                WHERE id = :solicitud_id;
+            """
+            self.db.execute(
+                text(sql), 
+                {
+                    "nuevo_estado": data["nuevo_estado"],
+                    "fecha_resuelto": data["fecha_resuelto"],
+                    "comentario_resuelto": data["comentario_resuelto"],
+                    "solicitud_id": data["solicitud_id"]
+                }
+            )
+            self.db.commit()
+                
+        except Exception as ex:
+            print("Error al actualizar estado:", ex)
+            self.db.rollback()
+            raise CustomException("Error al actualizar estado.")
         finally:
             self.db.close()

@@ -96,3 +96,51 @@ class Solicitud:
         except Exception as e:
             print(f"Error al obtener información: {e}")
             raise CustomException("Error al obtener información.")
+
+    # Función para actualizar el negociador de la solicitud
+    def actualizar_negociador(self, data: dict):
+        """ Api que realiza la consulta de los estados. """
+        try:
+            
+            # Mensaje de notificación
+            mensaje = f"El usuario {data['usuario_creador']} ha actualizado la solicitud al negociador {data['nuevo_negociador']}."
+            
+            # Verificamos si la solicitud existe
+            self.querys.check_if_solicitud_exists(data["solicitud_id"])
+
+            # Guardar la solicitud en la base de datos
+            self.querys.actualizar_negociador(data)
+
+            # Guardar historico de creación.
+            self.querys.guardar_historico(data["solicitud_id"], mensaje)
+
+            # Retornamos la información.
+            return self.tools.output(200, "Negociador actualizado con éxito.")
+
+        except Exception as e:
+            print(f"Error al actualizar negociador: {e}")
+            raise CustomException("Error al actualizar negociador.")
+
+    # Función para actualizar el negociador de la solicitud
+    def actualizar_estado(self, data: dict):
+        """ Api que realiza la consulta de los estados. """
+        try:
+            
+            # Mensaje de notificación
+            mensaje = f"El usuario {data['usuario_creador']} ha actualizado el estado de la solicitud a {data['texto_estado']}."
+            
+            # Verificamos si la solicitud existe
+            self.querys.check_if_solicitud_exists(data["solicitud_id"])
+
+            # Guardar la solicitud en la base de datos
+            self.querys.actualizar_estado(data)
+
+            # Guardar historico de creación.
+            self.querys.guardar_historico(data["solicitud_id"], mensaje)
+
+            # Retornamos la información.
+            return self.tools.output(200, "Estado actualizado con éxito.")
+
+        except Exception as e:
+            print(f"Error al actualizar estado: {e}")
+            raise CustomException("Error al actualizar estado.")
