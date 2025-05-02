@@ -14,7 +14,7 @@ def guardar_solicitud(request: Request, db: Session = Depends(get_db)):
     response = Solicitud(db).guardar_solicitud(data)
     return response
 
-@solicitud_router.post('/mostrar_solicitudes', tags=["Solicitud"], response_model=dict)
+@solicitud_router.post('/mostrar_solicitudes', tags=["Solicitud"], response_model=dict, dependencies=[Depends(JWTBearer())])
 @http_decorator
 def mostrar_solicitudes(request: Request, db: Session = Depends(get_db)):
     data = getattr(request.state, "json_data", {})

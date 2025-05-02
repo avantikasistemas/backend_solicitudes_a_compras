@@ -12,7 +12,8 @@ class User:
             'JAMARTINEZ', 'VNIETO', 'WOSPINO', 'ABEGAMBRE', 'JCARDENAS',
             'KGARCIA', 'CGUZMAN', 'JHERRERAM', 'DMEZA', 'CMUNIVE', 'AOLMOS1',
             'KORDOSGOIT', 'LBOROZCO', 'JPOROZCO', 'KRAMOS', 'KROMERO',
-            'vvillalobo', 'HMARTINEZ'
+            'vvillalobo', 'HMARTINEZ', 'RODRIGUEZC', 'KMERCADO', 'MCASALINS',
+            'MMIRANDA2', 'NFERNANDEZ', 'YORDONEZ2', 'PCARBONELL'
         ]
 
     # Función para loguear en el aplicativo
