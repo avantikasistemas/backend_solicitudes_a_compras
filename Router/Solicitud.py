@@ -34,3 +34,10 @@ def actualizar_estado(request: Request, db: Session = Depends(get_db)):
     data = getattr(request.state, "json_data", {})
     response = Solicitud(db).actualizar_estado(data)
     return response
+
+@solicitud_router.post('/cargar_archivo', tags=["Solicitud"], response_model=dict, dependencies=[Depends(JWTBearer())])
+@http_decorator
+def cargar_archivo(request: Request, db: Session = Depends(get_db)):
+    data = getattr(request.state, "json_data", {})
+    response = Solicitud(db).cargar_archivo(data)
+    return response

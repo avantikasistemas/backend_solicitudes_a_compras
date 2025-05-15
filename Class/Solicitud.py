@@ -1,6 +1,9 @@
 import socket
 from Utils.tools import Tools, CustomException
 from Utils.querys import Querys
+import base64
+import pandas as pd
+from io import BytesIO
 
 class Solicitud:
 
@@ -15,7 +18,6 @@ class Solicitud:
         try:
             correo_solicitante = None
             correo_negociador = None
-            correos = list()
             mensaje = f"El usuario {data['solicitante']} ha creado una solicitud al negociador {data['negociador']}."
 
             lista_productos = data["lista_productos"]
@@ -144,3 +146,63 @@ class Solicitud:
         except Exception as e:
             print(f"Error al actualizar estado: {e}")
             raise CustomException("Error al actualizar estado.")
+
+    # Función para cargar el archivo de solicitudes
+    def cargar_archivo(self, data: dict):
+        """ Api que realiza la consulta de los estados. """
+        try:
+            
+            extensiones_permitidas = ['xlsx']
+            
+            archivo = data["archivo"]
+            nombre = data["nombre"]
+            ext = nombre.split(".")[1]
+
+            # Verificamos si el archivo existe
+            if not archivo:
+                raise CustomException("El archivo no existe.")
+            
+            # Verificamos si la extensión es válida
+            if ext not in extensiones_permitidas:
+                raise CustomException("La extensión del archivo no es válida.")
+            
+            referencias = self.procesar_archivo(archivo)
+
+            # Retornamos la información.
+            return self.tools.output(200, "Archivo cargado con éxito.", referencias)
+
+        except CustomException as e:
+            print(f"Error al cargar archivo: {e}")
+            raise CustomException(str(e))
+
+    # Función para procesar el archivo excel
+    def procesar_archivo(self, archivo):
+        """ Procesa el archivo de solicitudes. """
+        try:
+            # 1. Decodificar base64 a binario
+            archivo_excel = base64.b64decode(archivo)
+
+            # 2. Convertir binario en archivo legible (BytesIO)
+            excel_io = BytesIO(archivo_excel)
+
+            # 3. Leer el archivo con pandas
+            df = pd.read_excel(excel_io, engine='openpyxl')
+
+            # 4. Eliminar filas vacías y verificar si hay datos (sin contar cabecera)
+            df = df.dropna(how='all')  # Quita filas completamente vacías
+
+            if df.shape[0] == 0:
+                raise CustomException("El archivo no contiene datos.")
+            
+            # Renombrar la columna 'descripcion' a 'producto' si existe
+            if 'descripcion' in df.columns:
+                df = df.rename(columns={'descripcion': 'producto'})
+
+            # 5. Convertir DataFrame a lista de diccionarios
+            data = df.where(pd.notnull(df), None).to_dict(orient='records')
+
+            return data
+
+        except CustomException as e:
+            print(f"Error al procesar archivo: {e}")
+            raise CustomException(str(e))
