@@ -35,11 +35,11 @@ class Solicitud:
             # Guardar historico de creación.
             self.querys.guardar_historico(solicitud_id, mensaje)
                 
-            correo_solicitante = self.querys.obtener_correo(data["solicitante"])
-            correo_negociador = self.querys.obtener_correo(data["negociador"])
+            # correo_solicitante = self.querys.obtener_correo(data["solicitante"])
+            # correo_negociador = self.querys.obtener_correo(data["negociador"])
                 
             # Envío correo de notificación
-            self.tools.enviar_correo_notificacion(solicitud_id, data, correo_solicitante, correo_negociador)
+            # self.tools.enviar_correo_notificacion(solicitud_id, data, correo_solicitante, correo_negociador)
 
             # Retornamos la información.
             return self.tools.output(200, "Solicitud guardada con éxito.")
@@ -205,4 +205,44 @@ class Solicitud:
 
         except CustomException as e:
             print(f"Error al procesar archivo: {e}")
+            raise CustomException(str(e))
+
+    # Función para actualizar la cantidad de un producto en la solicitud
+    def actualizar_cantidad_detalle(self, data: dict):
+        try:
+            # Verificamos si la solicitud existe
+            self.querys.check_if_solicitud_exists(data["solicitud_id"])
+
+            # Actualizamos la cantidad del producto en la base de datos
+            self.querys.actualizar_cantidad_detalle(data)
+            
+            # Mensaje de notificación
+            mensaje = f"""El usuario {data['usuario_creador']} ha actualizado \n
+            el producto {data['producto']} con referencia {data['referencia']} \n
+            con la cantidad de {data['cantidad_nueva']} items a la solicitud #{data['solicitud_id']}."""
+
+            # Guardar historico de creación.
+            self.querys.guardar_historico(data["solicitud_id"], mensaje)
+
+            # Retornamos la información.
+            return self.tools.output(200, "Cantidad actualizada con éxito.")
+
+        except CustomException as e:
+            print(f"Error al actualizar cantidad: {e}")
+            raise CustomException(str(e))
+
+    # Función para obtener los detalles de la solicitud
+    def get_detalles_solicitud(self, data: dict):
+        try:
+            # Verificamos si la solicitud existe
+            self.querys.check_if_solicitud_exists(data["solicitud_id"])
+
+            # Obtenemos los detalles de la solicitud
+            detalles = self.querys.get_detalles_solicitud(data)
+
+            # Retornamos la información.
+            return self.tools.output(200, "Detalles encontrados.", detalles)
+
+        except CustomException as e:
+            print(f"Error al obtener detalles: {e}")
             raise CustomException(str(e))

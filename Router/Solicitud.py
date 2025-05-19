@@ -41,3 +41,17 @@ def cargar_archivo(request: Request, db: Session = Depends(get_db)):
     data = getattr(request.state, "json_data", {})
     response = Solicitud(db).cargar_archivo(data)
     return response
+
+@solicitud_router.post('/actualizar_cantidad_detalle', tags=["Solicitud"], response_model=dict, dependencies=[Depends(JWTBearer())])
+@http_decorator
+def actualizar_cantidad_detalle(request: Request, db: Session = Depends(get_db)):
+    data = getattr(request.state, "json_data", {})
+    response = Solicitud(db).actualizar_cantidad_detalle(data)
+    return response
+
+@solicitud_router.post('/get_detalles_solicitud', tags=["Solicitud"], response_model=dict, dependencies=[Depends(JWTBearer())])
+@http_decorator
+def get_detalles_solicitud(request: Request, db: Session = Depends(get_db)):
+    data = getattr(request.state, "json_data", {})
+    response = Solicitud(db).get_detalles_solicitud(data)
+    return response

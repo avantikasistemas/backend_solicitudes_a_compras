@@ -17,14 +17,7 @@ class Querys:
         try:
             response = list()
             sql = """
-                SELECT DISTINCT u.des_usuario, dph.usuario AS creador_oc
-                FROM dbo.documentos_ped_historia AS dph
-                INNER JOIN dbo.usuarios AS u ON dph.usuario = u.usuario
-                WHERE dph.sw = 3
-                AND dph.fecha BETWEEN '20241101' AND '20501231'
-                AND dph.bodega <> 99
-                AND dph.usuario <> 'JAMARTINEZ'
-                ORDER BY u.des_usuario;
+                SELECT * FROM dbo.v_negociadores_compras ORDER BY des_usuario
             """
 
             query = self.db.execute(text(sql)).fetchall()
@@ -78,8 +71,8 @@ class Querys:
         try:
             sql = """
                 INSERT INTO dbo.solicitudes_compras_detalles (solicitud_id, referencia, producto, 
-                cantidad, proveedor, marca, created_at) VALUES (:solicitud_id, :referencia, :producto,
-                :cantidad, :proveedor, :marca, :created_at);
+                cantidad, proveedor, marca, producto_faltante, created_at) VALUES (:solicitud_id, :referencia, :producto,
+                :cantidad, :proveedor, :marca, :producto_faltante, :created_at);
             """
             self.db.execute(
                 text(sql), 
@@ -89,6 +82,7 @@ class Querys:
                     "producto": data["producto"],
                     "cantidad": data["cantidad"],
                     "proveedor": data["proveedor"],
+                    "producto_faltante": data["cantidad"],
                     "marca": data["marca"],
                     "created_at": datetime.now()
                 }
@@ -164,11 +158,12 @@ class Querys:
                         "estado_solicitud": key[6],
                         "fecha_resuelto": str(key[7]) if key[7] else '',
                         "comentario_resuelto": key[8],
-                        "estado": key[9],
-                        "created_at": self.tools.format_date(str(key[10]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if str(key[10]) else '',
-                        "estado_solicitud_nombre": key[11],
-                        "usuario_nombre": key[12],
-                        "negociador_nombre": key[13].upper()
+                        "porcentaje_solicitud": key[9],
+                        "estado": key[10],
+                        "created_at": self.tools.format_date(str(key[11]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if str(key[11]) else '',
+                        "estado_solicitud_nombre": key[12],
+                        "usuario_nombre": key[13],
+                        "negociador_nombre": key[14].upper()
                     } for key in query
                 ] if query else []
 
@@ -176,7 +171,7 @@ class Querys:
                     for key in response:
                         # Obtener los detalles de la solicitud
                         sql_detalles = """
-                            SELECT * FROM solicitudes_compras_detalles WHERE solicitud_id = :solicitud_id;
+                            SELECT * FROM solicitudes_compras_detalles WHERE solicitud_id = :solicitud_id AND estado = 1;
                         """
                         detalles_query = self.db.execute(text(sql_detalles), {"solicitud_id": key["id"]}).fetchall()
                         key["detalles"] = [
@@ -186,7 +181,9 @@ class Querys:
                                 "producto": detalle[3],
                                 "cantidad": detalle[4],
                                 "proveedor": detalle[5],
-                                "marca": detalle[6]
+                                "marca": detalle[6],
+                                "producto_despachado": detalle[7],
+                                "producto_faltante": detalle[8],
                             } for detalle in detalles_query
                         ] if detalles_query else []
                         
@@ -439,5 +436,73 @@ class Querys:
             print("Error al actualizar estado:", ex)
             self.db.rollback()
             raise CustomException("Error al actualizar estado.")
+        finally:
+            self.db.close()
+
+    # Query para actualizar la cantidad de un detalle de la solicitud
+    def actualizar_cantidad_detalle(self, data: dict):
+        try:
+            
+            detalle_id = data["detalle_id"]
+            cantidad_nueva = data["cantidad_nueva"]
+            solicitud_id = data["solicitud_id"]
+            producto_despachado = data["producto_despachado"]
+            producto_faltante = data["producto_faltante"]
+            
+            if cantidad_nueva > producto_faltante:
+                raise CustomException("La cantidad nueva no puede ser mayor a la cantidad faltante.")
+            
+            producto_despachado = producto_despachado + cantidad_nueva
+            producto_faltante = producto_faltante - cantidad_nueva
+            if producto_faltante < 0:
+                producto_faltante = 0
+                
+            sql = """
+                UPDATE dbo.solicitudes_compras_detalles
+                SET producto_despachado = :producto_despachado, producto_faltante = :producto_faltante
+                WHERE id = :detalle_id AND solicitud_id = :solicitud_id AND estado = 1;
+            """
+            self.db.execute(
+                text(sql),
+                {
+                    "producto_despachado": producto_despachado,
+                    "producto_faltante": producto_faltante,
+                    "detalle_id": detalle_id,
+                    "solicitud_id": solicitud_id,
+                }
+            )
+            self.db.commit()
+
+        except CustomException as ex:
+            print("Error al actualizar cantidad detalle:", ex)
+            self.db.rollback()
+            raise CustomException(str(ex))
+        finally:
+            self.db.close()
+
+    # Query para cargar los detalles de la solicitud
+    def get_detalles_solicitud(self, data: dict):
+        try:
+            sql = """
+                SELECT * FROM dbo.solicitudes_compras_detalles
+                WHERE solicitud_id = :solicitud_id AND estado = 1;
+            """
+            result = self.db.execute(text(sql), {"solicitud_id": data["solicitud_id"]}).fetchall()
+            return [
+                {
+                    "id": key[0],
+                    "referencia": key[2],
+                    "producto": key[3],
+                    "cantidad": key[4],
+                    "proveedor": key[5],
+                    "marca": key[6],
+                    "producto_despachado": key[7],
+                    "producto_faltante": key[8],
+                } for key in result
+            ] if result else []
+
+        except Exception as ex:
+            print("Error al obtener detalles de la solicitud:", ex)
+            raise CustomException("Error al obtener detalles de la solicitud.")
         finally:
             self.db.close()
