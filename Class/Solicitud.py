@@ -220,6 +220,9 @@ class Solicitud:
             mensaje = f"""El usuario {data['usuario_creador']} ha actualizado \n
             el producto {data['producto']} con referencia {data['referencia']} \n
             con la cantidad de {data['cantidad_nueva']} items a la solicitud #{data['solicitud_id']}."""
+            
+            # Actualizamos el porcentaje de la solicitud
+            self.querys.actualizar_porcentaje(data["solicitud_id"])
 
             # Guardar historico de creación.
             self.querys.guardar_historico(data["solicitud_id"], mensaje)

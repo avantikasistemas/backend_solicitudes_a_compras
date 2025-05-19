@@ -506,3 +506,50 @@ class Querys:
             raise CustomException("Error al obtener detalles de la solicitud.")
         finally:
             self.db.close()
+
+    # Query pra actualizar el porcentaje de avance de la solicitud
+    def actualizar_porcentaje(self, solicitud_id: int):
+        try:
+            
+            # Calcular porcentaje de la solicitud
+            sql_porcentaje = """
+                SELECT 
+                    SUM(cantidad) AS total_cantidad,
+                    SUM(producto_despachado) AS total_despachado
+                FROM dbo.solicitudes_compras_detalles
+                WHERE solicitud_id = :solicitud_id AND estado = 1;
+            """
+            result = self.db.execute(text(sql_porcentaje), {"solicitud_id": solicitud_id}).fetchone()
+            
+            print("Resultado de la consulta:", result)
+            
+            porcentaje = 0
+            if result and result[0]:
+                print("total_cantidad:", result[0])
+                print("total_despachado:", result[1])
+                total_cantidad = result[0]
+                total_despachado = result[1] or 0
+                porcentaje = round((total_despachado / total_cantidad) * 100, 2)
+                
+            print("Porcentaje calculado:", porcentaje)
+                
+            # Actualizar el porcentaje en la cabecera
+            sql_update_cabecera = """
+                UPDATE dbo.solicitudes_compras
+                SET porcentaje_solicitud = :porcentaje
+                WHERE id = :solicitud_id;
+            """
+
+            self.db.execute(
+                text(sql_update_cabecera),
+                {"porcentaje": porcentaje, "solicitud_id": solicitud_id}
+            )
+            self.db.commit()
+
+
+        except Exception as ex:
+            print("Error al actualizar porcentaje:", ex)
+            self.db.rollback()
+            raise CustomException("Error al actualizar porcentaje.")
+        finally:
+            self.db.close()
