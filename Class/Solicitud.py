@@ -35,11 +35,11 @@ class Solicitud:
             # Guardar historico de creación.
             self.querys.guardar_historico(solicitud_id, mensaje)
                 
-            # correo_solicitante = self.querys.obtener_correo(data["solicitante"])
-            # correo_negociador = self.querys.obtener_correo(data["negociador"])
+            correo_solicitante = self.querys.obtener_correo(data["solicitante"])
+            correo_negociador = self.querys.obtener_correo(data["negociador"])
                 
             # Envío correo de notificación
-            # self.tools.enviar_correo_notificacion(solicitud_id, data, correo_solicitante, correo_negociador)
+            self.tools.enviar_correo_notificacion(solicitud_id, data, correo_solicitante, correo_negociador)
 
             # Retornamos la información.
             return self.tools.output(200, "Solicitud guardada con éxito.")
