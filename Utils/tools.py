@@ -69,6 +69,38 @@ class Tools:
         fecha_formateada = fecha_objeto.strftime(output_format)
         return fecha_formateada
 
+    # Función para formatear fechas de forma flexible (maneja con y sin milisegundos)
+    def format_date_flexible(self, date_str, output_format="%Y-%m-%d %H:%M:%S"):
+        """
+        Formatea una fecha intentando diferentes formatos comunes.
+        Maneja fechas con y sin milisegundos automáticamente.
+        """
+        try:
+            # Lista de formatos posibles
+            formatos_posibles = [
+                "%Y-%m-%d %H:%M:%S.%f",  # Con milisegundos
+                "%Y-%m-%d %H:%M:%S",     # Sin milisegundos
+                "%Y-%m-%dT%H:%M:%S.%f",  # ISO con milisegundos
+                "%Y-%m-%dT%H:%M:%S",     # ISO sin milisegundos
+            ]
+            
+            fecha_objeto = None
+            for formato in formatos_posibles:
+                try:
+                    fecha_objeto = datetime.strptime(date_str, formato)
+                    break
+                except ValueError:
+                    continue
+            
+            if fecha_objeto is None:
+                # Si no coincide con ningún formato, intentar conversión directa
+                return date_str
+            
+            return fecha_objeto.strftime(output_format)
+        except Exception as e:
+            print(f"Error al formatear fecha '{date_str}': {e}")
+            return date_str
+
     # Función para formatear las fechas    
     def format_date2(self, date):
         # Convertir la cadena a un objeto datetime
@@ -83,6 +115,15 @@ class Tools:
             dt_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         local_dt = dt.astimezone(pytz.timezone('America/Bogota'))
         return local_dt.strftime("%d-%m-%Y %H:%M:%S")
+    
+    # Función para obtener la hora actual de Colombia (UTC-5)
+    def get_colombia_time(self):
+        """
+        Retorna la hora actual en la zona horaria de Colombia (America/Bogota).
+        Esto previene errores de diferencias horarias cuando el servidor esté en Linux.
+        """
+        colombia_tz = pytz.timezone('America/Bogota')
+        return datetime.now(colombia_tz)
     
     # Función para formatear a dinero    
     def format_money(self, value: str):

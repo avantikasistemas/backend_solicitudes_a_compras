@@ -1,3 +1,4 @@
+import traceback
 from Utils.tools import Tools, CustomException
 from sqlalchemy import text, or_, case
 from sqlalchemy.sql import select
@@ -17,15 +18,20 @@ class Querys:
         try:
             response = list()
             sql = """
-                SELECT * FROM dbo.v_negociadores_compras ORDER BY des_usuario
+                select n.nit, u.des_usuario as nombre, u.usuario 
+                from dbo.negociadores_compras n
+                left join usuarios u on n.nit = u.nit
+                where n.status = 1 and u.bloqueado is null and u.usuario <> 'MMIRANDA'
+                order by u.des_usuario ASC;
             """
 
             query = self.db.execute(text(sql)).fetchall()
             if query:
                 for key in query:
                     response.append({
-                        "des_usuario": key[0].upper(),
-                        "usuario": key[1]
+                        "nit": key.nit,
+                        "nombre": key.nombre.upper(),
+                        "usuario": key.usuario
                     })
 
             return response
@@ -39,19 +45,27 @@ class Querys:
     # Query para insertar datos de la solicitud.
     def guardar_solicitud(self, data: dict):
         try:
+            # Convertir lista de negociadores a string separado por comas
+            negociadores_lista = data.get("negociador", [])
+            if isinstance(negociadores_lista, list):
+                negociadores_str = ",".join(negociadores_lista)
+            else:
+                negociadores_str = negociadores_lista
+            
             sql = """
-                INSERT INTO dbo.solicitudes_compras (negociador, asunto, cuerpo_texto, usuario_creador_solicitud, created_at)
+                INSERT INTO dbo.solicitudes_compras (negociador, asunto, cuerpo_texto, usuario_creador_solicitud, nit_tercero, created_at)
                 OUTPUT INSERTED.id
-                VALUES (:negociador, :asunto, :cuerpo_texto, :usuario_creador_solicitud, :created_at);
+                VALUES (:negociador, :asunto, :cuerpo_texto, :usuario_creador_solicitud, :nit_tercero, :created_at);
             """
             result = self.db.execute(
                 text(sql), 
                 {
-                    "negociador": data["negociador"],
+                    "negociador": negociadores_str,
                     "asunto": data["asunto"],
                     "cuerpo_texto": data["cuerpo_texto"],
                     "usuario_creador_solicitud": data["solicitante"],
-                    "created_at": datetime.now()
+                    "nit_tercero": data.get("nit_tercero"),
+                    "created_at": self.tools.get_colombia_time()
                 }
             )
             
@@ -60,7 +74,9 @@ class Querys:
             return inserted_id
                 
         except Exception as ex:
-            print("Error al guardar:", ex)
+            print("Error al guardar solicitud:", ex)
+            print("Traceback completo:")
+            traceback.print_exc()
             self.db.rollback()
             raise CustomException("Error al guardar.")
         finally:
@@ -71,8 +87,8 @@ class Querys:
         try:
             sql = """
                 INSERT INTO dbo.solicitudes_compras_detalles (solicitud_id, referencia, producto, 
-                cantidad, proveedor, marca, producto_faltante, created_at) VALUES (:solicitud_id, :referencia, :producto,
-                :cantidad, :proveedor, :marca, :producto_faltante, :created_at);
+                cantidad, proveedor, marca, producto_faltante, cotizado, created_at) VALUES (:solicitud_id, :referencia, :producto,
+                :cantidad, :proveedor, :marca, :producto_faltante, :cotizado, :created_at);
             """
             self.db.execute(
                 text(sql), 
@@ -84,13 +100,16 @@ class Querys:
                     "proveedor": data["proveedor"],
                     "producto_faltante": data["cantidad"],
                     "marca": data["marca"],
-                    "created_at": datetime.now()
+                    "cotizado": data.get("cotizado", 0),  # Valor por defecto 0
+                    "created_at": self.tools.get_colombia_time()
                 }
             )
             self.db.commit()
                 
         except Exception as ex:
-            print("Error al guardar:", ex)
+            print("Error al guardar producto detalles:", ex)
+            print("Traceback completo:")
+            traceback.print_exc()
             self.db.rollback()
             raise CustomException("Error al guardar.")
         finally:
@@ -99,10 +118,12 @@ class Querys:
     # Query para mostrar las solicitudes.
     def mostrar_solicitudes(self, data: dict):
         try:
-            solicitud_id = data["solicitud_id"]
-            estado_solicitud = data["estado_solicitud"]
-            solicitante = data["solicitante"]
-            negociador = data["negociador"]
+            solicitud_id = data.get("solicitud_id")
+            estado_solicitud = data.get("estado_solicitud")
+            solicitante = data.get("solicitante")
+            negociador = data.get("negociador")
+            fecha_desde = data.get("fecha_desde")
+            fecha_hasta = data.get("fecha_hasta")
             cant_registros = 0
             limit = data["limit"]
             position = data["position"]
@@ -110,12 +131,17 @@ class Querys:
             response = list()
             
             sql = """
-                SELECT COUNT(*) OVER() AS total_registros, sc.*, se.nombre as estado_solicitud_nombre,
-				uc.des_usuario as 'usuario_nombre', u.des_usuario as 'negociador_nombre'
+                SELECT COUNT(*) OVER() AS total_registros, 
+                    sc.id, sc.negociador, sc.asunto, sc.cuerpo_texto, sc.usuario_creador_solicitud, 
+                    sc.estado_solicitud, sc.fecha_resuelto, sc.comentario_resuelto, 
+                    sc.porcentaje_solicitud, sc.estado, sc.created_at, sc.nit_tercero,
+                    se.nombre as estado_solicitud_nombre,
+                    uc.des_usuario as 'usuario_nombre', sc.negociador as 'negociador_nombre',
+                    t.nombres as 'tercero_nombre'
                 FROM dbo.solicitudes_compras sc
                 INNER JOIN dbo.solicitudes_estados se ON sc.estado_solicitud = se.id
-				INNER JOIN usuarios uc ON uc.usuario = sc.usuario_creador_solicitud
-				INNER JOIN usuarios u ON u.usuario = sc.negociador
+                INNER JOIN usuarios uc ON uc.usuario = sc.usuario_creador_solicitud
+                LEFT JOIN terceros t ON t.nit = sc.nit_tercero
                 WHERE sc.estado = 1 AND se.estado = 1
             """
             
@@ -132,8 +158,37 @@ class Querys:
                 self.query_params.update({"solicitante": solicitante})
                 
             if negociador:
-                sql += " AND sc.negociador = :negociador"
-                self.query_params.update({"negociador": negociador})
+                # Soportar tanto array como string para negociador
+                if isinstance(negociador, list) and len(negociador) > 0:
+                    # Si es un array de negociadores, buscar que contenga al menos uno
+                    conditions = []
+                    for idx, neg in enumerate(negociador):
+                        param_name = f"negociador_{idx}"
+                        conditions.append(f"(sc.negociador LIKE :{param_name} OR sc.negociador LIKE :{param_name}_start OR sc.negociador LIKE :{param_name}_end OR sc.negociador LIKE :{param_name}_middle)")
+                        self.query_params.update({
+                            f"{param_name}": neg,
+                            f"{param_name}_start": f"{neg},%",
+                            f"{param_name}_end": f"%,{neg}",
+                            f"{param_name}_middle": f"%,{neg},%"
+                        })
+                    sql += f" AND ({' OR '.join(conditions)})"
+                elif negociador:  # Si es un string
+                    sql += " AND (sc.negociador LIKE :negociador OR sc.negociador LIKE :negociador_start OR sc.negociador LIKE :negociador_end OR sc.negociador LIKE :negociador_middle)"
+                    self.query_params.update({
+                        "negociador": negociador,
+                        "negociador_start": f"{negociador},%",
+                        "negociador_end": f"%,{negociador}",
+                        "negociador_middle": f"%,{negociador},%"
+                    })
+            
+            # Filtros de fecha
+            if fecha_desde:
+                sql += " AND CONVERT(DATE, sc.created_at) >= :fecha_desde"
+                self.query_params.update({"fecha_desde": fecha_desde})
+            
+            if fecha_hasta:
+                sql += " AND CONVERT(DATE, sc.created_at) <= :fecha_hasta"
+                self.query_params.update({"fecha_hasta": fecha_hasta})
                 
             new_offset = self.obtener_limit(limit, position)
             self.query_params.update({"offset": new_offset, "limit": limit})
@@ -145,25 +200,27 @@ class Querys:
                 query = self.db.execute(text(sql)).fetchall()
 
             if query:
-                cant_registros = query[0][0]
+                cant_registros = query[0].total_registros
             
                 # Convertir el resultado a un formato de lista de diccionarios
                 response = [
                     {
-                        "id": key[1], 
-                        "negociador": key[2],
-                        "asunto": key[3],
-                        "cuerpo_texto": key[4],
-                        "usuario_creador_solicitud": key[5],
-                        "estado_solicitud": key[6],
-                        "fecha_resuelto": str(key[7]) if key[7] else '',
-                        "comentario_resuelto": key[8],
-                        "porcentaje_solicitud": key[9],
-                        "estado": key[10],
-                        "created_at": self.tools.format_date(str(key[11]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if str(key[11]) else '',
-                        "estado_solicitud_nombre": key[12],
-                        "usuario_nombre": key[13],
-                        "negociador_nombre": key[14].upper()
+                        "id": key.id, 
+                        "negociador": key.negociador,
+                        "asunto": key.asunto,
+                        "cuerpo_texto": key.cuerpo_texto,
+                        "usuario_creador_solicitud": key.usuario_creador_solicitud,
+                        "estado_solicitud": key.estado_solicitud,
+                        "fecha_resuelto": str(key.fecha_resuelto) if key.fecha_resuelto else '',
+                        "comentario_resuelto": key.comentario_resuelto,
+                        "porcentaje_solicitud": key.porcentaje_solicitud,
+                        "estado": key.estado,
+                        "created_at": self.tools.format_date_flexible(str(key.created_at)) if key.created_at else '',
+                        "nit_tercero": key.nit_tercero if key.nit_tercero else '',
+                        "estado_solicitud_nombre": key.estado_solicitud_nombre,
+                        "usuario_nombre": key.usuario_nombre,
+                        "negociador_nombre": self.obtener_nombres_negociadores(key.negociador_nombre) if key.negociador_nombre else '',
+                        "tercero_nombre": key.tercero_nombre if key.tercero_nombre else '',
                     } for key in query
                 ] if query else []
 
@@ -176,14 +233,16 @@ class Querys:
                         detalles_query = self.db.execute(text(sql_detalles), {"solicitud_id": key["id"]}).fetchall()
                         key["detalles"] = [
                             {
-                                "id": detalle[0],
-                                "referencia": detalle[2],
-                                "producto": detalle[3],
-                                "cantidad": detalle[4],
-                                "proveedor": detalle[5],
-                                "marca": detalle[6],
-                                "producto_despachado": detalle[7],
-                                "producto_faltante": detalle[8],
+                                "id": detalle.id,
+                                "referencia": detalle.referencia,
+                                "producto": detalle.producto,
+                                "cantidad": detalle.cantidad,
+                                "proveedor": detalle.proveedor,
+                                "marca": detalle.marca,
+                                "producto_despachado": detalle.producto_despachado,
+                                "producto_faltante": detalle.producto_faltante,
+                                "cotizado": 1 if detalle.cotizado else 0,
+                                "negociador": detalle.negociador if detalle.negociador else None
                             } for detalle in detalles_query
                         ] if detalles_query else []
                         
@@ -194,9 +253,9 @@ class Querys:
                         historico_query = self.db.execute(text(sql_historico), {"solicitud_id": key["id"]}).fetchall()
                         key["historico"] = [
                             {
-                                "id": hist[0],
-                                "descripcion": hist[2],
-                                "fecha": self.tools.format_date(str(hist[4]), "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%d %H:%M:%S") if str(hist[4]) else '',
+                                "id": hist.id,
+                                "descripcion": hist.descripcion,
+                                "fecha": self.tools.format_date_flexible(str(hist.created_at)) if hist.created_at else '',
                             } for hist in historico_query
                         ] if historico_query else []
                         
@@ -206,6 +265,8 @@ class Querys:
                 
         except Exception as ex:
             print("Error al mostrar:", ex)
+            print("Traceback completo:")
+            traceback.print_exc()
             raise CustomException("Error al mostrar.")
         finally:
             self.db.close()
@@ -226,8 +287,8 @@ class Querys:
             if query:
                 for key in query:
                     response.append({
-                        "id": key[0],
-                        "nombre": key[2]
+                        "id": key.id,
+                        "nombre": key.nombre
                     })
 
             return response
@@ -242,6 +303,38 @@ class Querys:
     def obtener_limit(self, limit: int, position: int):
         offset = (position - 1) * limit
         return offset
+
+    # Función para obtener los nombres de los negociadores desde una lista separada por comas
+    def obtener_nombres_negociadores(self, usuarios_str: str):
+        try:
+            if not usuarios_str:
+                return ''
+            
+            # Separar los usuarios por coma
+            usuarios = [u.strip() for u in usuarios_str.split(',')]
+            
+            # Si solo hay un usuario, obtener su nombre directamente
+            if len(usuarios) == 1:
+                sql = "SELECT des_usuario FROM usuarios WHERE usuario = :usuario"
+                result = self.db.execute(text(sql), {"usuario": usuarios[0]}).fetchone()
+                return result.des_usuario.upper() if result else usuarios[0]
+            
+            # Si hay múltiples usuarios, obtener todos los nombres
+            nombres = []
+            for usuario in usuarios:
+                sql = "SELECT des_usuario FROM usuarios WHERE usuario = :usuario"
+                result = self.db.execute(text(sql), {"usuario": usuario}).fetchone()
+                if result:
+                    nombres.append(result.des_usuario.upper())
+                else:
+                    nombres.append(usuario)
+            
+            # Retornar nombres separados por coma
+            return ', '.join(nombres)
+            
+        except Exception as ex:
+            print(f"Error al obtener nombres de negociadores: {ex}")
+            return usuarios_str  # Retornar el string original si hay error
 
     # Query para obtener los tipos de estado para la cotizacion
     def get_personal_cotizaciones(self):
@@ -261,9 +354,44 @@ class Querys:
             if query:
                 for key in query:
                     response.append({
-                        "cedula": key[0],
-                        "nombre": key[1],
-                        "usuario": key[2]
+                        "cedula": key.nit,
+                        "nombre": key.nombres,
+                        "usuario": key.usuario
+                    })
+
+            return response
+                
+        except Exception as ex:
+            print(str(ex))
+            raise CustomException(str(ex))
+        finally:
+            self.db.close()
+
+    # Query para obtener los terceros
+    def get_terceros(self, busqueda: str = None):
+
+        try:
+            response = list()
+            
+            if busqueda and len(busqueda) >= 3:
+                sql = """
+                    SELECT TOP 20 * FROM terceros 
+                    WHERE nombres LIKE :busqueda OR nit LIKE :busqueda
+                    ORDER BY nombres ASC
+                """
+                query = self.db.execute(text(sql), {"busqueda": f"%{busqueda}%"}).fetchall()
+            else:
+                # Si no hay búsqueda o es muy corta, retornar lista vacía o primeros 20
+                sql = """
+                    SELECT TOP 20 * FROM terceros ORDER BY nombres ASC
+                """
+                query = self.db.execute(text(sql)).fetchall()
+            
+            if query:
+                for key in query:
+                    response.append({
+                        "nit": key.nit,
+                        "nombres": key.nombres
                     })
 
             return response
@@ -294,15 +422,17 @@ class Querys:
                 raise CustomException("Usuario o contraseña incorrecta.")
             
             response.update({
-                "nombre": query[0],
-                "cedula": str(query[1]),
-                "usuario": query[2]
+                "nombre": query.des_usuario,
+                "cedula": str(query.nit),
+                "usuario": query.usuario
             })
 
             return response
                 
         except Exception as ex:
-            print(str(ex))
+            print("Error al login:", str(ex))
+            print("Traceback completo:")
+            traceback.print_exc()
             raise CustomException("Error al intentar conectar con la base de datos.")
         finally:
             self.db.close()
@@ -320,7 +450,7 @@ class Querys:
 
             query = self.db.execute(text(sql), {"cedula": cedula}).fetchone()
 
-            return query[0]
+            return query.nit
                 
         except Exception as ex:
             print(str(ex))
@@ -341,7 +471,7 @@ class Querys:
 
             query = self.db.execute(text(sql), {"usuario": usuario}).fetchone()
 
-            return query[0]
+            return query.mail
                 
         except Exception as ex:
             print(str(ex))
@@ -361,7 +491,7 @@ class Querys:
                 {
                     "solicitud_id": solicitud_id,
                     "descripcion": mensaje,
-                    "created_at": datetime.now()
+                    "created_at": self.tools.get_colombia_time()
                 }
             )
             self.db.commit()
@@ -416,6 +546,11 @@ class Querys:
     # Query para actualizar el estado de la solicitud
     def actualizar_estado(self, data: dict):
         try:
+            # Si el estado es 4 (Resuelto) y no viene fecha_resuelto, generarla automáticamente
+            fecha_resuelto = data.get("fecha_resuelto")
+            if data["nuevo_estado"] == 4 and not fecha_resuelto:
+                fecha_resuelto = self.tools.get_colombia_time()
+            
             sql = """
                 UPDATE dbo.solicitudes_compras
                 SET estado_solicitud = :nuevo_estado, fecha_resuelto = :fecha_resuelto, comentario_resuelto = :comentario_resuelto
@@ -425,7 +560,7 @@ class Querys:
                 text(sql), 
                 {
                     "nuevo_estado": data["nuevo_estado"],
-                    "fecha_resuelto": data["fecha_resuelto"],
+                    "fecha_resuelto": fecha_resuelto,
                     "comentario_resuelto": data["comentario_resuelto"],
                     "solicitud_id": data["solicitud_id"]
                 }
@@ -475,6 +610,36 @@ class Querys:
 
         except CustomException as ex:
             print("Error al actualizar cantidad detalle:", ex)
+            print("Traceback completo:")
+            traceback.print_exc()
+            self.db.rollback()
+            raise CustomException(str(ex))
+        finally:
+            self.db.close()
+
+    # Query para actualizar el campo cotizado y negociador de un detalle
+    def actualizar_cotizado(self, detalle_id: int, solicitud_id: int, cotizado: int, negociador: str = None):
+        try:
+            sql = """
+                UPDATE dbo.solicitudes_compras_detalles
+                SET cotizado = :cotizado, negociador = :negociador
+                WHERE id = :detalle_id AND solicitud_id = :solicitud_id AND estado = 1;
+            """
+            self.db.execute(
+                text(sql),
+                {
+                    "cotizado": cotizado,
+                    "negociador": negociador if negociador else None,
+                    "detalle_id": detalle_id,
+                    "solicitud_id": solicitud_id,
+                }
+            )
+            self.db.commit()
+
+        except CustomException as ex:
+            print("Error al actualizar cotizado y negociador:", ex)
+            print("Traceback completo:")
+            traceback.print_exc()
             self.db.rollback()
             raise CustomException(str(ex))
         finally:
@@ -490,14 +655,16 @@ class Querys:
             result = self.db.execute(text(sql), {"solicitud_id": data["solicitud_id"]}).fetchall()
             return [
                 {
-                    "id": key[0],
-                    "referencia": key[2],
-                    "producto": key[3],
-                    "cantidad": key[4],
-                    "proveedor": key[5],
-                    "marca": key[6],
-                    "producto_despachado": key[7],
-                    "producto_faltante": key[8],
+                    "id": key.id,
+                    "referencia": key.referencia,
+                    "producto": key.producto,
+                    "cantidad": key.cantidad,
+                    "proveedor": key.proveedor,
+                    "marca": key.marca,
+                    "producto_despachado": key.producto_despachado,
+                    "producto_faltante": key.producto_faltante,
+                    "cotizado": 1 if key.cotizado else 0,  # Campo cotizado (BIT) convertido a 1 o 0
+                    "negociador": key.negociador if key.negociador else None,  # Campo negociador
                 } for key in result
             ] if result else []
 
@@ -511,11 +678,11 @@ class Querys:
     def actualizar_porcentaje(self, solicitud_id: int):
         try:
             
-            # Calcular porcentaje de la solicitud
+            # Calcular porcentaje de la solicitud basado en items cotizados
             sql_porcentaje = """
                 SELECT 
-                    SUM(cantidad) AS total_cantidad,
-                    SUM(producto_despachado) AS total_despachado
+                    COUNT(*) AS total_items,
+                    SUM(CASE WHEN cotizado = 1 THEN 1 ELSE 0 END) AS items_cotizados
                 FROM dbo.solicitudes_compras_detalles
                 WHERE solicitud_id = :solicitud_id AND estado = 1;
             """
@@ -524,12 +691,12 @@ class Querys:
             print("Resultado de la consulta:", result)
             
             porcentaje = 0
-            if result and result[0]:
-                print("total_cantidad:", result[0])
-                print("total_despachado:", result[1])
-                total_cantidad = result[0]
-                total_despachado = result[1] or 0
-                porcentaje = round((total_despachado / total_cantidad) * 100, 2)
+            if result and result.total_items:
+                print("total_items:", result.total_items)
+                print("items_cotizados:", result.items_cotizados)
+                total_items = result.total_items
+                items_cotizados = result.items_cotizados or 0
+                porcentaje = round((items_cotizados / total_items) * 100, 2)
                 
             print("Porcentaje calculado:", porcentaje)
                 

@@ -49,6 +49,13 @@ def actualizar_cantidad_detalle(request: Request, db: Session = Depends(get_db))
     response = Solicitud(db).actualizar_cantidad_detalle(data)
     return response
 
+@solicitud_router.post('/actualizar_cotizado', tags=["Solicitud"], response_model=dict, dependencies=[Depends(JWTBearer())])
+@http_decorator
+def actualizar_cotizado(request: Request, db: Session = Depends(get_db)):
+    data = getattr(request.state, "json_data", {})
+    response = Solicitud(db).actualizar_cotizado(data)
+    return response
+
 @solicitud_router.post('/get_detalles_solicitud', tags=["Solicitud"], response_model=dict, dependencies=[Depends(JWTBearer())])
 @http_decorator
 def get_detalles_solicitud(request: Request, db: Session = Depends(get_db)):

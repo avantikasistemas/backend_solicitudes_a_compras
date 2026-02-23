@@ -58,3 +58,20 @@ class Parametros:
         except Exception as e:
             print(f"Error al obtener información de tercero: {e}")
             raise CustomException("Error al obtener información de tercero.")
+
+    # Función para obtener terceros
+    def get_terceros(self, data: dict):
+        """ Api que realiza la consulta de los terceros. """
+
+        try:
+            busqueda = data.get("busqueda", "")
+
+            # Llamamos a la función de consultar los terceros
+            terceros = self.querys.get_terceros(busqueda)
+
+            # Retornamos la información.
+            return self.tools.output(200, "Datos encontrados.", terceros)
+
+        except Exception as e:
+            print(f"Error al obtener información de terceros: {e}")
+            raise CustomException("Error al obtener información de terceros.")

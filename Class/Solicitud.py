@@ -1,4 +1,5 @@
 import socket
+import traceback
 from Utils.tools import Tools, CustomException
 from Utils.querys import Querys
 import base64
@@ -17,8 +18,17 @@ class Solicitud:
         """ Api que realiza la consulta de los estados. """
         try:
             correo_solicitante = None
-            correo_negociador = None
-            mensaje = f"El usuario {data['solicitante']} ha creado una solicitud al negociador {data['negociador']}."
+            correos_negociadores = []
+            
+            # Manejar múltiples negociadores
+            negociadores_lista = data['negociador'] if isinstance(data['negociador'], list) else [data['negociador']]
+            negociadores_str = ', '.join(negociadores_lista)
+            
+            # Mensaje actualizado para múltiples negociadores
+            if len(negociadores_lista) > 1:
+                mensaje = f"El usuario {data['solicitante']} ha creado una solicitud para los negociadores: {negociadores_str}."
+            else:
+                mensaje = f"El usuario {data['solicitante']} ha creado una solicitud al negociador {negociadores_str}."
 
             lista_productos = data["lista_productos"]
             # Verificamos si la lista de productos está vacía
@@ -32,20 +42,36 @@ class Solicitud:
                 # Guardar cada producto en la base de datos
                 self.querys.guardar_producto_detalles(solicitud_id, producto)
                 
+            # Actualizar el porcentaje inicial de la solicitud
+            self.querys.actualizar_porcentaje(solicitud_id)
+                
             # Guardar historico de creación.
             self.querys.guardar_historico(solicitud_id, mensaje)
                 
+            # Obtener correo del solicitante
             correo_solicitante = self.querys.obtener_correo(data["solicitante"])
-            correo_negociador = self.querys.obtener_correo(data["negociador"])
+            
+            # Obtener correos de todos los negociadores
+            for negociador in negociadores_lista:
+                try:
+                    correo = self.querys.obtener_correo(negociador)
+                    if correo:
+                        correos_negociadores.append(correo)
+                except Exception as e:
+                    print(f"Error al obtener correo del negociador {negociador}: {e}")
                 
-            # Envío correo de notificación
-            self.tools.enviar_correo_notificacion(solicitud_id, data, correo_solicitante, correo_negociador)
+            # Envío correo de notificación (actualizar data con la lista de correos)
+            data_correo = data.copy()
+            data_correo['correos_negociadores'] = correos_negociadores
+            self.tools.enviar_correo_notificacion(solicitud_id, data_correo, correo_solicitante, correos_negociadores)
 
             # Retornamos la información.
             return self.tools.output(200, "Solicitud guardada con éxito.")
 
         except Exception as e:
             print(f"Error al guardar solicitud: {e}")
+            print("Traceback completo:")
+            traceback.print_exc()
             raise CustomException("Error al guardar solicitud.")
         
     # Función para consultar los datos de busqueda en modulo CONSULTAR
@@ -97,6 +123,8 @@ class Solicitud:
 
         except Exception as e:
             print(f"Error al obtener información: {e}")
+            print("Traceback completo:")
+            traceback.print_exc()
             raise CustomException("Error al obtener información.")
 
     # Función para actualizar el negociador de la solicitud
@@ -173,6 +201,8 @@ class Solicitud:
 
         except CustomException as e:
             print(f"Error al cargar archivo: {e}")
+            print("Traceback completo:")
+            traceback.print_exc()
             raise CustomException(str(e))
 
     # Función para procesar el archivo excel
@@ -205,6 +235,8 @@ class Solicitud:
 
         except CustomException as e:
             print(f"Error al procesar archivo: {e}")
+            print("Traceback completo:")
+            traceback.print_exc()
             raise CustomException(str(e))
 
     # Función para actualizar la cantidad de un producto en la solicitud
@@ -232,6 +264,45 @@ class Solicitud:
 
         except CustomException as e:
             print(f"Error al actualizar cantidad: {e}")
+            print("Traceback completo:")
+            traceback.print_exc()
+            raise CustomException(str(e))
+
+    # Función para actualizar el estado de cotizado y negociador de un detalle
+    def actualizar_cotizado(self, data: dict):
+        try:
+            # Verificamos si la solicitud existe
+            self.querys.check_if_solicitud_exists(data["solicitud_id"])
+
+            # Actualizamos el cotizado y negociador en la base de datos
+            self.querys.actualizar_cotizado(
+                data["detalle_id"], 
+                data["solicitud_id"], 
+                data["cotizado"],
+                data.get("negociador")  # Campo opcional de negociador
+            )
+            
+            # Actualizamos el porcentaje de la solicitud
+            self.querys.actualizar_porcentaje(data["solicitud_id"])
+            
+            # Mensaje de notificación
+            estado_cotizado = "cotizado" if data["cotizado"] == 1 else "no cotizado"
+            mensaje = f"El producto con referencia {data.get('referencia', '')} ha sido marcado como {estado_cotizado}"
+            
+            if data.get("negociador"):
+                mensaje += f" y asignado al negociador {data.get('negociador')}"
+            mensaje += "."
+            
+            # Guardar historico
+            self.querys.guardar_historico(data["solicitud_id"], mensaje)
+
+            # Retornamos la información.
+            return self.tools.output(200, "Cotizado actualizado con éxito.")
+
+        except CustomException as e:
+            print(f"Error al actualizar cotizado: {e}")
+            print("Traceback completo:")
+            traceback.print_exc()
             raise CustomException(str(e))
 
     # Función para obtener los detalles de la solicitud
@@ -248,4 +319,6 @@ class Solicitud:
 
         except CustomException as e:
             print(f"Error al obtener detalles: {e}")
+            print("Traceback completo:")
+            traceback.print_exc()
             raise CustomException(str(e))

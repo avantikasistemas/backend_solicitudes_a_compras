@@ -24,3 +24,10 @@ def get_estados_solicitud(request: Request, db: Session = Depends(get_db)):
 def get_personal_cotizaciones(request: Request, db: Session = Depends(get_db)):
     response = Parametros(db).get_personal_cotizaciones()
     return response
+
+@parametros_router.post('/get_terceros', tags=["Parametros"], response_model=dict, dependencies=[Depends(JWTBearer())])
+@http_decorator
+def get_terceros(request: Request, db: Session = Depends(get_db)):
+    data = getattr(request.state, "json_data", {})
+    response = Parametros(db).get_terceros(data)
+    return response
