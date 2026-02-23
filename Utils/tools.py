@@ -179,16 +179,24 @@ class Tools:
         
         msg['Subject'] = f"Solicitud #: {solicitud_id} - {data['asunto']}"
         msg['From'] = correo_solicitante
-        msg['To'] = correo_negociador
+        
+        # Convertir correo_negociador a lista si es string
+        if isinstance(correo_negociador, str):
+            correo_negociador = [correo_negociador]
+        
+        # Convertir a string para el header 'To' (separado por comas)
+        msg['To'] = ', '.join(correo_negociador) if correo_negociador else ''
         msg['Cc'] = correo_solicitante
 
         # Convertir correo_solicitante en lista si es string
         if isinstance(correo_solicitante, str):
             # Si contiene varias direcciones separadas por coma, separamos
             correo_solicitante = [email.strip() for email in correo_solicitante.split(',') if email.strip()]
+        elif not isinstance(correo_solicitante, list):
+            correo_solicitante = [correo_solicitante]
 
-        # Combinar destinatarios TO + CC
-        destinatarios = [correo_negociador] + correo_solicitante
+        # Combinar destinatarios TO + CC (todos deben recibir el correo)
+        destinatarios = correo_negociador + correo_solicitante
 
         try:
             server = smtplib.SMTP(str(SMTP_SERVER), int(SMTP_PORT), timeout=10)

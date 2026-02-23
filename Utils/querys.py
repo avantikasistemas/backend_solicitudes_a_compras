@@ -42,6 +42,24 @@ class Querys:
         finally:
             self.db.close()
 
+    # Query para verificar si un usuario es negociador
+    def verificar_es_negociador(self, usuario):
+        try:
+            sql = """
+                SELECT COUNT(*) as total
+                FROM dbo.negociadores_compras n
+                INNER JOIN usuarios u ON n.nit = u.nit
+                WHERE u.usuario = :usuario AND n.status = 1;
+            """
+            result = self.db.execute(text(sql), {"usuario": usuario}).fetchone()
+            return result.total > 0 if result else False
+                
+        except Exception as ex:
+            print(str(ex))
+            return False
+        finally:
+            self.db.close()
+
     # Query para insertar datos de la solicitud.
     def guardar_solicitud(self, data: dict):
         try:
@@ -87,8 +105,8 @@ class Querys:
         try:
             sql = """
                 INSERT INTO dbo.solicitudes_compras_detalles (solicitud_id, referencia, producto, 
-                cantidad, proveedor, marca, producto_faltante, cotizado, created_at) VALUES (:solicitud_id, :referencia, :producto,
-                :cantidad, :proveedor, :marca, :producto_faltante, :cotizado, :created_at);
+                cantidad, proveedor, marca, cotizado, created_at) VALUES (:solicitud_id, :referencia, :producto,
+                :cantidad, :proveedor, :marca, :cotizado, :created_at);
             """
             self.db.execute(
                 text(sql), 
@@ -98,7 +116,6 @@ class Querys:
                     "producto": data["producto"],
                     "cantidad": data["cantidad"],
                     "proveedor": data["proveedor"],
-                    "producto_faltante": data["cantidad"],
                     "marca": data["marca"],
                     "cotizado": data.get("cotizado", 0),  # Valor por defecto 0
                     "created_at": self.tools.get_colombia_time()
@@ -239,8 +256,6 @@ class Querys:
                                 "cantidad": detalle.cantidad,
                                 "proveedor": detalle.proveedor,
                                 "marca": detalle.marca,
-                                "producto_despachado": detalle.producto_despachado,
-                                "producto_faltante": detalle.producto_faltante,
                                 "cotizado": 1 if detalle.cotizado else 0,
                                 "negociador": detalle.negociador if detalle.negociador else None
                             } for detalle in detalles_query
