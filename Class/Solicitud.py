@@ -87,6 +87,7 @@ class Solicitud:
 
             registros = datos_form["registros"]
             cant_registros = datos_form["cant_registros"]
+            indicadores = datos_form.get("indicadores", [])
 
             if not registros:
                 message = "No hay listado de que mostrar."
@@ -94,7 +95,8 @@ class Solicitud:
                 "total_registros": 0,
                 "total_pag": 0,
                 "posicion_pag": 0,
-                "registros": []
+                "registros": [],
+                "indicadores": indicadores
             })
 
             if cant_registros%data["limit"] == 0:
@@ -115,7 +117,8 @@ class Solicitud:
                 "total_registros": cant_registros,
                 "total_pag": total_pag,
                 "posicion_pag": data["position"],
-                "registros": registros
+                "registros": registros,
+                "indicadores": indicadores
             }
 
             # Retornamos la información.
@@ -271,30 +274,56 @@ class Solicitud:
     # Función para actualizar el estado de cotizado y negociador de un detalle
     def actualizar_cotizado(self, data: dict):
         try:
+            solicitud_id = data["solicitud_id"]
+            estado_actual = data.get("estado_solicitud")
+
             # Verificamos si la solicitud existe
-            self.querys.check_if_solicitud_exists(data["solicitud_id"])
+            self.querys.check_if_solicitud_exists(solicitud_id)
 
             # Actualizamos el cotizado y negociador en la base de datos
             self.querys.actualizar_cotizado(
                 data["detalle_id"], 
-                data["solicitud_id"], 
+                solicitud_id, 
                 data["cotizado"],
                 data.get("negociador")  # Campo opcional de negociador
             )
             
-            # Actualizamos el porcentaje de la solicitud
-            self.querys.actualizar_porcentaje(data["solicitud_id"])
+            # Actualizamos el porcentaje y obtenemos el valor nuevo
+            nuevo_porcentaje = self.querys.actualizar_porcentaje(solicitud_id)
             
-            # Mensaje de notificación
+            # Mensaje de notificación base
             estado_cotizado = "cotizado" if data["cotizado"] == 1 else "no cotizado"
             mensaje = f"El producto con referencia {data.get('referencia', '')} ha sido marcado como {estado_cotizado}"
-            
             if data.get("negociador"):
                 mensaje += f" y asignado al negociador {data.get('negociador')}"
             mensaje += "."
             
-            # Guardar historico
-            self.querys.guardar_historico(data["solicitud_id"], mensaje)
+            # Guardar historico del detalle
+            self.querys.guardar_historico(solicitud_id, mensaje)
+
+            # ── Lógica automática de cambio de estado ──────────────────────────
+            # Prioridad 1: si el porcentaje llega al 100%, resolver automáticamente
+            if nuevo_porcentaje == 100:
+                self.querys.actualizar_estado_cabecera(
+                    solicitud_id,
+                    nuevo_estado=4,
+                    comentario_resuelto="Solicitud Completa"
+                )
+                self.querys.guardar_historico(
+                    solicitud_id,
+                    "La solicitud ha sido marcada como Resuelta automáticamente porque todos los ítems fueron cotizados."
+                )
+            # Prioridad 2: si está Pendiente (1) y hubo algún cambio, pasar a En Proceso (2)
+            elif estado_actual == 1:
+                self.querys.actualizar_estado_cabecera(
+                    solicitud_id,
+                    nuevo_estado=2
+                )
+                self.querys.guardar_historico(
+                    solicitud_id,
+                    "La solicitud ha pasado a estado En Proceso automáticamente al registrar avance."
+                )
+            # ───────────────────────────────────────────────────────────────────
 
             # Retornamos la información.
             return self.tools.output(200, "Cotizado actualizado con éxito.")

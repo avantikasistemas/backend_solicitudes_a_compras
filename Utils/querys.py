@@ -105,8 +105,8 @@ class Querys:
         try:
             sql = """
                 INSERT INTO dbo.solicitudes_compras_detalles (solicitud_id, referencia, producto, 
-                cantidad, proveedor, marca, cotizado, created_at) VALUES (:solicitud_id, :referencia, :producto,
-                :cantidad, :proveedor, :marca, :cotizado, :created_at);
+                cantidad, proveedor, marca, cotizado, negociador, created_at) VALUES (:solicitud_id, :referencia, :producto,
+                :cantidad, :proveedor, :marca, :cotizado, :negociador, :created_at);
             """
             self.db.execute(
                 text(sql), 
@@ -118,6 +118,7 @@ class Querys:
                     "proveedor": data["proveedor"],
                     "marca": data["marca"],
                     "cotizado": data.get("cotizado", 0),  # Valor por defecto 0
+                    "negociador": data.get("negociador"),  # Valor por defecto None
                     "created_at": self.tools.get_colombia_time()
                 }
             )
@@ -144,7 +145,7 @@ class Querys:
             cant_registros = 0
             limit = data["limit"]
             position = data["position"]
-            result = {"registros": [], "cant_registros": 0}
+            result = {"registros": [], "cant_registros": 0, "indicadores": []}
             response = list()
             
             sql = """
@@ -154,7 +155,17 @@ class Querys:
                     sc.porcentaje_solicitud, sc.estado, sc.created_at, sc.nit_tercero,
                     se.nombre as estado_solicitud_nombre,
                     uc.des_usuario as 'usuario_nombre', sc.negociador as 'negociador_nombre',
-                    t.nombres as 'tercero_nombre'
+                    t.nombres as 'tercero_nombre', t.concepto_20 as fan
+                FROM dbo.solicitudes_compras sc
+                INNER JOIN dbo.solicitudes_estados se ON sc.estado_solicitud = se.id
+                INNER JOIN usuarios uc ON uc.usuario = sc.usuario_creador_solicitud
+                LEFT JOIN terceros t ON t.nit = sc.nit_tercero
+                WHERE sc.estado = 1 AND se.estado = 1
+            """
+
+            # Query de indicadores: mismos JOINs y filtros, sin paginación
+            sql_indicadores = """
+                SELECT sc.estado_solicitud, se.nombre as estado_nombre, COUNT(*) as total
                 FROM dbo.solicitudes_compras sc
                 INNER JOIN dbo.solicitudes_estados se ON sc.estado_solicitud = se.id
                 INNER JOIN usuarios uc ON uc.usuario = sc.usuario_creador_solicitud
@@ -164,14 +175,17 @@ class Querys:
             
             if solicitud_id:
                 sql += " AND sc.id = :solicitud_id"
+                sql_indicadores += " AND sc.id = :solicitud_id"
                 self.query_params.update({"solicitud_id": solicitud_id})
             
             if estado_solicitud:
                 sql += " AND sc.estado_solicitud = :estado_solicitud"
+                sql_indicadores += " AND sc.estado_solicitud = :estado_solicitud"
                 self.query_params.update({"estado_solicitud": estado_solicitud})
 
             if solicitante:
                 sql += " AND sc.usuario_creador_solicitud = :solicitante"
+                sql_indicadores += " AND sc.usuario_creador_solicitud = :solicitante"
                 self.query_params.update({"solicitante": solicitante})
                 
             if negociador:
@@ -188,9 +202,13 @@ class Querys:
                             f"{param_name}_end": f"%,{neg}",
                             f"{param_name}_middle": f"%,{neg},%"
                         })
-                    sql += f" AND ({' OR '.join(conditions)})"
+                    neg_condition = f" AND ({' OR '.join(conditions)})"
+                    sql += neg_condition
+                    sql_indicadores += neg_condition
                 elif negociador:  # Si es un string
-                    sql += " AND (sc.negociador LIKE :negociador OR sc.negociador LIKE :negociador_start OR sc.negociador LIKE :negociador_end OR sc.negociador LIKE :negociador_middle)"
+                    neg_condition = " AND (sc.negociador LIKE :negociador OR sc.negociador LIKE :negociador_start OR sc.negociador LIKE :negociador_end OR sc.negociador LIKE :negociador_middle)"
+                    sql += neg_condition
+                    sql_indicadores += neg_condition
                     self.query_params.update({
                         "negociador": negociador,
                         "negociador_start": f"{negociador},%",
@@ -201,12 +219,34 @@ class Querys:
             # Filtros de fecha
             if fecha_desde:
                 sql += " AND CONVERT(DATE, sc.created_at) >= :fecha_desde"
+                sql_indicadores += " AND CONVERT(DATE, sc.created_at) >= :fecha_desde"
                 self.query_params.update({"fecha_desde": fecha_desde})
             
             if fecha_hasta:
                 sql += " AND CONVERT(DATE, sc.created_at) <= :fecha_hasta"
+                sql_indicadores += " AND CONVERT(DATE, sc.created_at) <= :fecha_hasta"
                 self.query_params.update({"fecha_hasta": fecha_hasta})
-                
+
+            fan = data.get("fan")
+            if fan is True:
+                sql += " AND t.concepto_20 = '200'"
+                sql_indicadores += " AND t.concepto_20 = '200'"
+            elif fan is False:
+                sql += " AND (t.concepto_20 != '200' OR t.concepto_20 IS NULL)"
+                sql_indicadores += " AND (t.concepto_20 != '200' OR t.concepto_20 IS NULL)"
+
+            # Ejecutar query de indicadores ANTES de agregar OFFSET/LIMIT
+            sql_indicadores += " GROUP BY sc.estado_solicitud, se.nombre;"
+            if self.query_params:
+                query_ind = self.db.execute(text(sql_indicadores), self.query_params).fetchall()
+            else:
+                query_ind = self.db.execute(text(sql_indicadores)).fetchall()
+            indicadores_raw = [
+                {"estado_id": row.estado_solicitud, "estado_nombre": row.estado_nombre, "total": row.total}
+                for row in query_ind
+            ] if query_ind else []
+            result["indicadores"] = indicadores_raw
+
             new_offset = self.obtener_limit(limit, position)
             self.query_params.update({"offset": new_offset, "limit": limit})
             sql = sql + " ORDER BY sc.id DESC OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY;"
@@ -238,6 +278,7 @@ class Querys:
                         "usuario_nombre": key.usuario_nombre,
                         "negociador_nombre": self.obtener_nombres_negociadores(key.negociador_nombre) if key.negociador_nombre else '',
                         "tercero_nombre": key.tercero_nombre if key.tercero_nombre else '',
+                        "fan": True if key.fan == '200' else False
                     } for key in query
                 ] if query else []
 
@@ -274,7 +315,7 @@ class Querys:
                             } for hist in historico_query
                         ] if historico_query else []
                         
-                result = {"registros": response, "cant_registros": cant_registros}
+                result = {"registros": response, "cant_registros": cant_registros, "indicadores": indicadores_raw}
 
             return result
                 
@@ -390,15 +431,15 @@ class Querys:
             
             if busqueda and len(busqueda) >= 3:
                 sql = """
-                    SELECT TOP 20 * FROM terceros 
+                    SELECT TOP 50 * FROM terceros 
                     WHERE nombres LIKE :busqueda OR nit LIKE :busqueda
                     ORDER BY nombres ASC
                 """
                 query = self.db.execute(text(sql), {"busqueda": f"%{busqueda}%"}).fetchall()
             else:
-                # Si no hay búsqueda o es muy corta, retornar lista vacía o primeros 20
+                # Si no hay búsqueda o es muy corta, retornar lista vacía o primeros 50
                 sql = """
-                    SELECT TOP 20 * FROM terceros ORDER BY nombres ASC
+                    SELECT TOP 50 * FROM terceros ORDER BY nombres ASC
                 """
                 query = self.db.execute(text(sql)).fetchall()
             
@@ -406,7 +447,8 @@ class Querys:
                 for key in query:
                     response.append({
                         "nit": key.nit,
-                        "nombres": key.nombres
+                        "nombres": key.nombres,
+                        "fan": True if key.concepto_20 == '200' else False
                     })
 
             return response
@@ -728,10 +770,40 @@ class Querys:
             )
             self.db.commit()
 
+            return porcentaje
 
         except Exception as ex:
             print("Error al actualizar porcentaje:", ex)
             self.db.rollback()
             raise CustomException("Error al actualizar porcentaje.")
+        finally:
+            self.db.close()
+
+    # Query para actualizar el estado de la solicitud de forma automática (sin cerrar manualmente)
+    def actualizar_estado_cabecera(self, solicitud_id: int, nuevo_estado: int, fecha_resuelto=None, comentario_resuelto: str = ''):
+        try:
+            fecha = fecha_resuelto if fecha_resuelto else (self.tools.get_colombia_time().date() if nuevo_estado == 4 else None)
+            sql = """
+                UPDATE dbo.solicitudes_compras
+                SET estado_solicitud = :nuevo_estado,
+                    fecha_resuelto = :fecha_resuelto,
+                    comentario_resuelto = :comentario_resuelto
+                WHERE id = :solicitud_id;
+            """
+            self.db.execute(
+                text(sql),
+                {
+                    "nuevo_estado": nuevo_estado,
+                    "fecha_resuelto": fecha,
+                    "comentario_resuelto": comentario_resuelto,
+                    "solicitud_id": solicitud_id,
+                }
+            )
+            self.db.commit()
+
+        except Exception as ex:
+            print("Error al actualizar estado de cabecera:", ex)
+            self.db.rollback()
+            raise CustomException("Error al actualizar estado de la solicitud automáticamente.")
         finally:
             self.db.close()
