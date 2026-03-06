@@ -1,19 +1,9 @@
-# import base64
-# from Utils.constants import BASE_PATH_TEMPLATE
 from fastapi.responses import JSONResponse, Response
 from fastapi.encoders import jsonable_encoder
-# from dotenv import load_dotenv
-# from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-# from email.mime.base import MIMEBase
-# from email import encoders
-# import json
-# import os
-import smtplib
 import pytz
 from datetime import datetime, timezone
 from decimal import Decimal
-from .constants import SMTP_SERVER, SMTP_PORT
+from .graph_client import GraphClient
 
 class Tools:
 
@@ -28,10 +18,7 @@ class Tools:
         )
         return response
 
-
-    """ Esta funcion permite darle formato a la respuesta de la API """
     def output(self, codigo, message, data={}):
-
         response = JSONResponse(
             status_code=codigo,
             content=jsonable_encoder({
@@ -43,16 +30,6 @@ class Tools:
         )
         return response
 
-    # """ Esta funcion permite obtener el template """
-    # def get_content_template(self, template_name: str):
-    #     template = f"{BASE_PATH_TEMPLATE}/{template_name}"
-
-    #     content = ""
-    #     with open(template, 'r') as f:
-    #         content = f.read()
-
-    #     return content
-
     def result(self, msg, code=400, error="", data=[]):
         return {
             "body": {
@@ -63,27 +40,19 @@ class Tools:
             }
         }
 
-    # Función para formatear las fechas    
     def format_date(self, date, normal_format, output_format):
         fecha_objeto = datetime.strptime(date, normal_format)
         fecha_formateada = fecha_objeto.strftime(output_format)
         return fecha_formateada
 
-    # Función para formatear fechas de forma flexible (maneja con y sin milisegundos)
     def format_date_flexible(self, date_str, output_format="%Y-%m-%d %H:%M:%S"):
-        """
-        Formatea una fecha intentando diferentes formatos comunes.
-        Maneja fechas con y sin milisegundos automáticamente.
-        """
         try:
-            # Lista de formatos posibles
             formatos_posibles = [
-                "%Y-%m-%d %H:%M:%S.%f",  # Con milisegundos
-                "%Y-%m-%d %H:%M:%S",     # Sin milisegundos
-                "%Y-%m-%dT%H:%M:%S.%f",  # ISO con milisegundos
-                "%Y-%m-%dT%H:%M:%S",     # ISO sin milisegundos
+                "%Y-%m-%d %H:%M:%S.%f",
+                "%Y-%m-%d %H:%M:%S",
+                "%Y-%m-%dT%H:%M:%S.%f",
+                "%Y-%m-%dT%H:%M:%S",
             ]
-            
             fecha_objeto = None
             for formato in formatos_posibles:
                 try:
@@ -91,214 +60,92 @@ class Tools:
                     break
                 except ValueError:
                     continue
-            
             if fecha_objeto is None:
-                # Si no coincide con ningún formato, intentar conversión directa
                 return date_str
-            
             return fecha_objeto.strftime(output_format)
         except Exception as e:
-            print(f"Error al formatear fecha '{date_str}': {e}")
+            print(f"Error al formatear fecha {date_str}: {e}")
             return date_str
 
-    # Función para formatear las fechas    
     def format_date2(self, date):
-        # Convertir la cadena a un objeto datetime
         fecha_objeto = datetime.fromisoformat(date)
-        # Formatear la fecha al formato deseado
         fecha_formateada = fecha_objeto.strftime("%d-%m-%Y")
         return fecha_formateada
-    
-    # Función para formatear fechas con zona horaria
+
     def format_datetime(self, dt_str):
         dt = datetime.strptime(
             dt_str, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         local_dt = dt.astimezone(pytz.timezone('America/Bogota'))
         return local_dt.strftime("%d-%m-%Y %H:%M:%S")
-    
-    # Función para obtener la hora actual de Colombia (UTC-5)
+
     def get_colombia_time(self):
-        """
-        Retorna la hora actual en la zona horaria de Colombia (America/Bogota).
-        Esto previene errores de diferencias horarias cuando el servidor esté en Linux.
-        """
         colombia_tz = pytz.timezone('America/Bogota')
         return datetime.now(colombia_tz)
-    
-    # Función para formatear a dinero    
+
     def format_money(self, value: str):
         value = value.replace(",", "")
         valor_decimal = Decimal(value)
         return valor_decimal
-    
-    # Función para enviar correo de notificación
+
     def enviar_correo_notificacion(self, solicitud_id, data, correo_solicitante, correo_negociador):
-
         cuerpo_texto = data["cuerpo_texto"]
-        
-        # Construir tabla HTML
-        tabla_html = """
-        <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; font-family: Arial;">
-            <thead style="background-color:#2778bf; color:white;">
-                <tr>
-                    <th>Referencia</th>
-                    <th>Producto</th>
-                    <th>Cantidad</th>
-                    <th>Proveedor</th>
-                    <th>Marca</th>
-                </tr>
-            </thead>
-            <tbody>
-        """
 
+        filas_html = ""
         for producto in data["lista_productos"]:
-            tabla_html += f"""
-                <tr>
-                    <td>{producto.get('referencia', '')}</td>
-                    <td>{producto.get('producto', '')}</td>
-                    <td>{producto.get('cantidad', '')}</td>
-                    <td>{producto.get('proveedor', '')}</td>
-                    <td>{producto.get('marca', '')}</td>
-                </tr>
-            """
+            filas_html += (
+                "<tr>"
+                "<td>" + str(producto.get("referencia", "")) + "</td>"
+                "<td>" + str(producto.get("producto", "")) + "</td>"
+                "<td>" + str(producto.get("cantidad", "")) + "</td>"
+                "<td>" + str(producto.get("proveedor", "")) + "</td>"
+                "<td>" + str(producto.get("marca", "")) + "</td>"
+                "<td>" + str(producto.get("negociador", "")) + "</td>"
+                "</tr>"
+            )
 
-        tabla_html += "</tbody></table>"
+        tabla_html = (
+            '<table border="1" cellpadding="5" cellspacing="0" style="border-collapse:collapse;font-family:Arial;">'
+            '<thead style="background-color:#2778bf;color:white;">'
+            "<tr><th>Referencia</th><th>Producto</th><th>Cantidad</th><th>Proveedor</th><th>Marca</th><th>Negociador</th></tr>"
+            "</thead>"
+            "<tbody>" + filas_html + "</tbody>"
+            "</table>"
+        )
 
-        # Combinar el cuerpo del mensaje con la tabla
-        html_content = f"""
-        <html>
-            <body>
-                <p>{cuerpo_texto}</p>
-                <h4>Productos solicitados:</h4>
-                {tabla_html}
-            </body>
-        </html>
-        """
+        html_content = (
+            "<html><body>"
+            "<p>" + cuerpo_texto + "</p>"
+            "<h4>Productos solicitados:</h4>"
+            + tabla_html +
+            "</body></html>"
+        )
 
-        msg = MIMEText(html_content, "html")    
-        
-        msg['Subject'] = f"Solicitud #: {solicitud_id} - {data['asunto']}"
-        msg['From'] = correo_solicitante
-        
-        # Convertir correo_negociador a lista si es string
+        subject = "Solicitud #: " + str(solicitud_id) + " - " + data["asunto"]
+
         if isinstance(correo_negociador, str):
             correo_negociador = [correo_negociador]
-        
-        # Convertir a string para el header 'To' (separado por comas)
-        msg['To'] = ', '.join(correo_negociador) if correo_negociador else ''
-        msg['Cc'] = correo_solicitante
-
-        # Convertir correo_solicitante en lista si es string
         if isinstance(correo_solicitante, str):
-            # Si contiene varias direcciones separadas por coma, separamos
-            correo_solicitante = [email.strip() for email in correo_solicitante.split(',') if email.strip()]
+            correo_solicitante = [e.strip() for e in correo_solicitante.split(",") if e.strip()]
         elif not isinstance(correo_solicitante, list):
-            correo_solicitante = [correo_solicitante]
+            correo_solicitante = []
 
-        # Combinar destinatarios TO + CC (todos deben recibir el correo)
-        destinatarios = correo_negociador + correo_solicitante
+        to_recipients = [e for e in correo_negociador if e]
+        cc_recipients = [e for e in correo_solicitante if e]
 
         try:
-            server = smtplib.SMTP(str(SMTP_SERVER), int(SMTP_PORT), timeout=10)
-            server.ehlo()
-            server.sendmail(msg['From'], destinatarios, msg.as_string()) 
-            server.quit()
-            print("Correo de notificación enviado correctamente.")
+            graph = GraphClient()
+            graph.send_mail(
+                subject=subject,
+                html_body=html_content,
+                to_recipients=to_recipients,
+                cc_recipients=cc_recipients,
+            )
+            print("Correo de notificacion enviado correctamente via Graph.")
         except Exception as e:
-            print(f"Error enviando correo de notificación: {str(e)}")
-            CustomException("Error enviando correo de notificación.")
-
-
-    # """ Obtener archivo"""
-    # def get_file_b64(self, file_path):
-    #     with open(file_path, "rb") as file:
-    #         # Leer el contenido binario del archivo PDF
-    #         pdf_content = file.read()
-
-    #         # Codificar el contenido binario en base64
-    #         pdf_base64 = base64.b64encode(pdf_content).decode('utf-8')
-
-    #         return pdf_base64
-
-    # async def send_email_error(self, service_name, code, request, response):
-    #     load_dotenv()
-    #     # Obtener enviroment
-    #     stage = os.getenv("STAGE")
-    #     remitente = os.getenv("EMAIL_USER")
-    #     destinatario = os.getenv("EMAIL_DEV")
-
-    #     template_url = f"{BASE_PATH_TEMPLATE}/notificacion_error.html"
-    #     # Preapar el asunto del correo
-    #     subject = f"TOYO - Project: Error service - Stage: {stage}"
-    #     # Preparar el contenido del correo
-    #     data_correo = {
-    #         "servicio": "TOYO",
-    #         "status_code": code,
-    #         "consumo": service_name,
-    #         "id_gestion": "000",
-    #         "url": "Toyo_dev",
-    #         "request": request,
-    #         "response": response
-    #     }
-
-    #     msg = MIMEMultipart()
-    #     msg["Subject"] = subject
-    #     msg["From"] = remitente
-    #     msg["To"] = destinatario
-
-    #     with open(template_url, 'r') as template_file:
-    #         template = template_file.read()
-    #         template = template.format(**data_correo)
-    #     msg.attach(MIMEText(template, 'html'))
-
-    #     # Configura la conexión al servidor SMTP de Gmail
-    #     server = smtplib.SMTP('smtp.gmail.com', 587)
-    #     server.starttls()
-    #     server.login(remitente, os.getenv('EMAIL_PASSWORD'))
-
-    #     # Envía el correo
-    #     server.sendmail(remitente, destinatario, msg.as_string())
-
-    #     # Cierra la conexión con el servidor SMTP
-    #     server.quit()
-
-    # async def send_email(self, recipients, subject, body, attachments=None):
-    #     sender = os.getenv("EMAIL_USER")
-
-    #     msg = MIMEMultipart()
-    #     msg["Subject"] = subject
-    #     msg["From"] = sender
-    #     msg["To"] = recipients
-
-    #     msg.attach(MIMEText(body, 'html'))
-    #     # Agregar archivos adjuntos en formato base64 al mensaje MIME
-    #     if attachments:
-    #         for attachment in attachments:
-    #             # Decodificar el contenido base64
-    #             decoded_data = base64.b64decode(attachment["file"])
-
-    #             # Crear un objeto MIMEBase y adjuntar el archivo decodificado
-    #             attachment_part = MIMEBase('application', 'octet-stream')
-    #             attachment_part.set_payload(decoded_data)
-    #             encoders.encode_base64(attachment_part)
-
-    #             # Establecer el encabezado del archivo adjunto
-    #             attachment_part.add_header('Content-Disposition', f'attachment; filename={attachment["name"]}')
-    #             msg.attach(attachment_part)
-
-    #     # Configurar conexion con servidor SMTP
-    #     server = smtplib.SMTP('smtp.gmail.com', 587)
-    #     server.starttls()
-    #     server.login(sender, os.getenv('EMAIL_PASSWORD'))
-    #     server.sendmail(sender, recipients, msg.as_string())
-    #     # Cerrar conexion Con servidor
-    #     server.quit()
+            print("Error enviando correo de notificacion: " + str(e))
 
 
 class CustomException(Exception):
-    """ Esta clase hereda de la clase Exception y permite
-        interrumpir la ejecucion de un metodo invocando una excepcion
-        personalizada """
     def __init__(self, message="", codigo=400, data={}):
         self.codigo = codigo
         self.message = message

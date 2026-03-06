@@ -31,9 +31,19 @@ class Solicitud:
                 mensaje = f"El usuario {data['solicitante']} ha creado una solicitud al negociador {negociadores_str}."
 
             lista_productos = data["lista_productos"]
+            # Verificar que el tercero esté seleccionado
+            if not data.get("nit_tercero"):
+                raise CustomException("El campo Tercero es obligatorio.")
             # Verificamos si la lista de productos está vacía
             if not lista_productos:
                 raise CustomException("La lista de productos no debe estar vacía.")
+
+            # Validar campos obligatorios de cada producto
+            campos_obligatorios = ["producto", "cantidad", "marca", "negociador"]
+            for i, producto in enumerate(lista_productos, start=1):
+                faltantes = [c for c in campos_obligatorios if not producto.get(c) and producto.get(c) != 0]
+                if faltantes:
+                    raise CustomException(f"El producto en la fila {i} tiene campos obligatorios vacíos: {', '.join(faltantes)}.")
 
             # Guardar la solicitud en la base de datos
             solicitud_id = self.querys.guardar_solicitud(data)
@@ -230,6 +240,10 @@ class Solicitud:
             # Renombrar la columna 'descripcion' a 'producto' si existe
             if 'descripcion' in df.columns:
                 df = df.rename(columns={'descripcion': 'producto'})
+
+            # Renombrar la columna 'usuario_negociador' a 'negociador' si existe
+            if 'usuario_negociador' in df.columns:
+                df = df.rename(columns={'usuario_negociador': 'negociador'})
 
             # 5. Convertir DataFrame a lista de diccionarios
             data = df.where(pd.notnull(df), None).to_dict(orient='records')

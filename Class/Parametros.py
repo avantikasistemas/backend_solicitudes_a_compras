@@ -18,7 +18,7 @@ class Parametros:
         try:
 
             # Llamamos a la función de consultar los negociadores
-            usuarios = self.querys.get_negociadores()
+            usuarios = self.querys.get_negociadores(tipo=2)
 
             # Retornamos la información.
             return self.tools.output(200, "Datos encontrados.", usuarios)

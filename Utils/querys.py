@@ -13,7 +13,7 @@ class Querys:
         self.query_params = dict()
 
     # Query para obtener los tipos de estado para la cotizacion
-    def get_negociadores(self):
+    def get_negociadores(self, tipo: int):
 
         try:
             response = list()
@@ -21,11 +21,13 @@ class Querys:
                 select n.nit, u.des_usuario as nombre, u.usuario 
                 from dbo.negociadores_compras n
                 left join usuarios u on n.nit = u.nit
-                where n.status = 1 and u.bloqueado is null and u.usuario <> 'MMIRANDA'
+                where n.status = 1 and u.bloqueado is null and 
+                (u.usuario <> 'MMIRANDA' and u.usuario <> 'COMPRAS')
+                and tipo = :tipo
                 order by u.des_usuario ASC;
             """
 
-            query = self.db.execute(text(sql)).fetchall()
+            query = self.db.execute(text(sql), {"tipo": tipo}).fetchall()
             if query:
                 for key in query:
                     response.append({
@@ -57,6 +59,53 @@ class Querys:
         except Exception as ex:
             print(str(ex))
             return False
+        finally:
+            self.db.close()
+
+    # Query para verificar si un usuario es solicitante y obtener su tipo
+    def verificar_es_solicitante(self, usuario):
+        try:
+            sql = """
+                SELECT sc.tipo
+                FROM dbo.solicitantes_compras sc
+                INNER JOIN usuarios u ON sc.nit = u.nit
+                WHERE u.usuario = :usuario AND sc.status = 1;
+            """
+            result = self.db.execute(text(sql), {"usuario": usuario}).fetchone()
+            if result:
+                return True, result.tipo
+            return False, None
+
+        except Exception as ex:
+            print(str(ex))
+            return False, None
+        finally:
+            self.db.close()
+
+    # Query para obtener solicitantes coordinadores (tipo=1)
+    def get_solicitantes_tipo1(self):
+        try:
+            response = list()
+            sql = """
+                SELECT sc.nit, u.des_usuario as nombre, u.usuario
+                FROM dbo.solicitantes_compras sc
+                LEFT JOIN usuarios u ON sc.nit = u.nit
+                WHERE sc.status = 1 AND sc.tipo = 1
+                ORDER BY u.des_usuario ASC
+            """
+            query = self.db.execute(text(sql)).fetchall()
+            if query:
+                for key in query:
+                    response.append({
+                        "nit": key.nit,
+                        "nombre": key.nombre.upper() if key.nombre else "",
+                        "usuario": key.usuario
+                    })
+            return response
+
+        except Exception as ex:
+            print(str(ex))
+            raise CustomException(str(ex))
         finally:
             self.db.close()
 
@@ -140,6 +189,7 @@ class Querys:
             estado_solicitud = data.get("estado_solicitud")
             solicitante = data.get("solicitante")
             negociador = data.get("negociador")
+            cotizado = data.get("cotizado")  # None = sin filtro, 0 = No, 1 = Si
             fecha_desde = data.get("fecha_desde")
             fecha_hasta = data.get("fecha_hasta")
             cant_registros = 0
@@ -165,11 +215,19 @@ class Querys:
 
             # Query de indicadores: mismos JOINs y filtros, sin paginación
             sql_indicadores = """
-                SELECT sc.estado_solicitud, se.nombre as estado_nombre, COUNT(*) as total
+                SELECT sc.estado_solicitud, se.nombre as estado_nombre,
+                       COUNT(*) as total,
+                       SUM(ISNULL(scd.item_count, 0)) as total_items
                 FROM dbo.solicitudes_compras sc
                 INNER JOIN dbo.solicitudes_estados se ON sc.estado_solicitud = se.id
                 INNER JOIN usuarios uc ON uc.usuario = sc.usuario_creador_solicitud
                 LEFT JOIN terceros t ON t.nit = sc.nit_tercero
+                LEFT JOIN (
+                    SELECT solicitud_id, COUNT(*) as item_count
+                    FROM dbo.solicitudes_compras_detalles
+                    WHERE estado = 1
+                    GROUP BY solicitud_id
+                ) scd ON scd.solicitud_id = sc.id
                 WHERE sc.estado = 1 AND se.estado = 1
             """
             
@@ -188,33 +246,27 @@ class Querys:
                 sql_indicadores += " AND sc.usuario_creador_solicitud = :solicitante"
                 self.query_params.update({"solicitante": solicitante})
                 
-            if negociador:
-                # Soportar tanto array como string para negociador
-                if isinstance(negociador, list) and len(negociador) > 0:
-                    # Si es un array de negociadores, buscar que contenga al menos uno
-                    conditions = []
-                    for idx, neg in enumerate(negociador):
-                        param_name = f"negociador_{idx}"
-                        conditions.append(f"(sc.negociador LIKE :{param_name} OR sc.negociador LIKE :{param_name}_start OR sc.negociador LIKE :{param_name}_end OR sc.negociador LIKE :{param_name}_middle)")
-                        self.query_params.update({
-                            f"{param_name}": neg,
-                            f"{param_name}_start": f"{neg},%",
-                            f"{param_name}_end": f"%,{neg}",
-                            f"{param_name}_middle": f"%,{neg},%"
-                        })
-                    neg_condition = f" AND ({' OR '.join(conditions)})"
-                    sql += neg_condition
-                    sql_indicadores += neg_condition
-                elif negociador:  # Si es un string
-                    neg_condition = " AND (sc.negociador LIKE :negociador OR sc.negociador LIKE :negociador_start OR sc.negociador LIKE :negociador_end OR sc.negociador LIKE :negociador_middle)"
-                    sql += neg_condition
-                    sql_indicadores += neg_condition
-                    self.query_params.update({
-                        "negociador": negociador,
-                        "negociador_start": f"{negociador},%",
-                        "negociador_end": f"%,{negociador}",
-                        "negociador_middle": f"%,{negociador},%"
-                    })
+            # Negociador y/o cotizado: siempre filtra en detalles (solicitudes_compras_detalles)
+            if negociador or cotizado is not None:
+                det_conds = ["scd_f.solicitud_id = sc.id", "scd_f.estado = 1"]
+
+                if negociador:
+                    neg_list = negociador if isinstance(negociador, list) else [negociador]
+                    if len(neg_list) > 0:
+                        neg_parts = []
+                        for idx, neg in enumerate(neg_list):
+                            p = f"det_neg_{idx}"
+                            neg_parts.append(f"scd_f.negociador = :{p}")
+                            self.query_params[p] = neg
+                        det_conds.append(f"({' OR '.join(neg_parts)})")
+
+                if cotizado is not None:
+                    det_conds.append("scd_f.cotizado = :filtro_cotizado")
+                    self.query_params["filtro_cotizado"] = cotizado
+
+                exists_clause = f" AND EXISTS (SELECT 1 FROM dbo.solicitudes_compras_detalles scd_f WHERE {' AND '.join(det_conds)})"
+                sql += exists_clause
+                sql_indicadores += exists_clause
             
             # Filtros de fecha
             if fecha_desde:
@@ -242,7 +294,12 @@ class Querys:
             else:
                 query_ind = self.db.execute(text(sql_indicadores)).fetchall()
             indicadores_raw = [
-                {"estado_id": row.estado_solicitud, "estado_nombre": row.estado_nombre, "total": row.total}
+                {
+                    "estado_id": row.estado_solicitud,
+                    "estado_nombre": row.estado_nombre,
+                    "total": row.total,
+                    "total_items": int(row.total_items) if row.total_items else 0
+                }
                 for row in query_ind
             ] if query_ind else []
             result["indicadores"] = indicadores_raw
@@ -283,12 +340,32 @@ class Querys:
                 ] if query else []
 
                 if response:
+                    # Construir filtros de detalles según negociador y cotizado activos
+                    detalles_extra_sql = ""
+                    detalles_extra_params = {}
+
+                    if negociador:
+                        neg_list = negociador if isinstance(negociador, list) else [negociador]
+                        if len(neg_list) > 0:
+                            neg_parts = []
+                            for idx, neg in enumerate(neg_list):
+                                p = f"d_neg_{idx}"
+                                neg_parts.append(f"negociador = :{p}")
+                                detalles_extra_params[p] = neg
+                            detalles_extra_sql += f" AND ({' OR '.join(neg_parts)})"
+
+                    if cotizado is not None:
+                        detalles_extra_sql += " AND cotizado = :d_cotizado"
+                        detalles_extra_params["d_cotizado"] = cotizado
+
                     for key in response:
-                        # Obtener los detalles de la solicitud
-                        sql_detalles = """
-                            SELECT * FROM solicitudes_compras_detalles WHERE solicitud_id = :solicitud_id AND estado = 1;
+                        # Obtener los detalles de la solicitud (con filtros opcionales)
+                        sql_detalles = f"""
+                            SELECT * FROM solicitudes_compras_detalles
+                            WHERE solicitud_id = :solicitud_id AND estado = 1{detalles_extra_sql};
                         """
-                        detalles_query = self.db.execute(text(sql_detalles), {"solicitud_id": key["id"]}).fetchall()
+                        detalles_params = {"solicitud_id": key["id"], **detalles_extra_params}
+                        detalles_query = self.db.execute(text(sql_detalles), detalles_params).fetchall()
                         key["detalles"] = [
                             {
                                 "id": detalle.id,
@@ -398,20 +475,19 @@ class Querys:
         try:
             response = list()
             sql = """
-                SELECT va.nit, va.nombres, u.usuario
-                FROM v_personal_activo va
-                INNER JOIN usuarios u ON u.nit = va.nit
-                WHERE va.descripcion IN ('ASESOR DE VENTA', 'ASESOR DE VENTAS TELEMERCADEO', 'COORDINADOR DE COTIZACIONES')
-                AND u.bloqueado IS NULL
-                ORDER BY va.nombres ASC
+                SELECT sc.nit, u.des_usuario as nombre, u.usuario
+                FROM dbo.solicitantes_compras sc
+                LEFT JOIN usuarios u ON sc.nit = u.nit
+                WHERE sc.status = 1 AND u.usuario not in ('AOLMOS', 'LBOROZCO') 
+                ORDER BY u.des_usuario ASC
             """
 
             query = self.db.execute(text(sql)).fetchall()
             if query:
                 for key in query:
                     response.append({
-                        "cedula": key.nit,
-                        "nombre": key.nombres,
+                        "nit": key.nit,
+                        "nombre": key.nombre.upper() if key.nombre else "",
                         "usuario": key.usuario
                     })
 
